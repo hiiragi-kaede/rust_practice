@@ -1,2 +1,13 @@
 println!はRustのマクロを呼び出す。
 ！を使うと、普通の関数ではなくマクロを読んでいるということを知っておこう。
+
+cargoはnpmみたいな感じでライブラリとかのバージョン管理を行ってくれる。
+cargo new <project_name> --bin
+とかで新規プロジェクトを作れる。
+cargo check でエラーをチェックし、実際ビルドが必要なときには
+cargo build →./target/debug/<project_name>
+もしくは　cargo run
+でできる。
+
+cargo build --releaseを使うと最適化を行ってコンパイルできる。
+このときはコンパイルに時間がかかるようになるため回数は少ないほうが良い。
