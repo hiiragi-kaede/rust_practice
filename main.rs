@@ -1,8 +1,9 @@
 fn main(){
-    let x = 5;
-    let y ={
-        let x=3;
-        x+1
+    let num = 1;
+    let state = if num!=1{
+        false
+    }else{
+        true
     };
-    println!("The value y is {}",y);
+    println!("state is {}",state);
 }
