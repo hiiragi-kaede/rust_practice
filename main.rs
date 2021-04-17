@@ -1,17 +1,17 @@
 fn main(){
-    let s = String::from("hello");
-    takes_ownership(s);
+    let user = build_user(String::from("aaa.com"), String::from("tas"));
 
-    let x = 5;
-    makes_copy(5);
-
-    println!("{}",x);
+    println!("{}:{}",user.email,user.username);
 }
 
-fn takes_ownership(some_str:String){
-    println!("{}",some_str);
+struct User{
+    email: String,
+    username: String
 }
 
-fn makes_copy(some_int:i32){
-    println!("{}",some_int);
+fn build_user(Email:String, Username: String)-> User{
+    User{
+        Email,
+        Username
+    }
 }

@@ -229,3 +229,67 @@ Pythonと同じく、自明なら添字を省略できる
 文字列リテラルの型は&strになっている。そのため文字列は不変になっている。
 また、Stringの値と&strを両方扱える関数にするためには、引数の型を&strにするとよい。
 文字列リテラルを渡すときにはそのままでよく、Stringを渡すときには&my_string[..]にすれば問題なく動かすことができる。
+
+
+構造体の定義は
+struct User{
+    username: String,
+    email: String,
+    active: bool,
+}
+みたいにする。
+
+使用時には
+let user1 = User{
+  username: String::from("TAS"),
+  email: String::from("sample@example.com"),
+  active: true,
+};
+みたいにする。
+
+ちなみに、初期化順は構造体で宣言した通りの順番に指定する必要はない。
+
+構造体から特定の値を得るのはドット記法。つまりいつもの。
+インスタンスが可変であればドット記法で代入することができる。
+let mut user1={...};
+user1.email = String::from("another@example.com")
+
+インスタンス全体が可変でなければならない！Rustでは一部のフィールドのみを可変にすることはできない。
+いわゆるコンストラクタのbuild関数を作るときに、関数の最後で構造体を生成すればそれをreturnしてくれる。
+そのとき、フィールドと引数の値が同じ時はemail:emailみたいに書く必要はなく、emailと書くだけでよい。
+ちなみに大文字小文字でも動かなくなるので、本当にフィールドと一致させないとだめ。
+
+error[E0560]: struct `User` has no field named `Email`
+  --> main.rs:14:9
+   |
+14 |         Email,
+   |         ^^^^^ help: a field with a similar name exists: `email`
+
+
+let user2 = User {
+    email: String::from("another@example.com"),
+    username: String::from("anotherusername567"),
+    active: user1.active,
+    sign_in_count: user1.sign_in_count,
+};
+こんな感じで同じ構造体のインスタンスのフィールドを活用して初期化できる。
+
+let user2 = User {
+    email: String::from("another@example.com"),
+    username: String::from("anotherusername567"),
+    ..user1
+};
+
+また、上のような構造体更新記法を使うと、明示的にセットされていない残りのフィールドを、与えられたインスタンスのフィールドと同じ値になるように指定する。
+
+構造体名により追加の意味を含むものの、フィールドに名前を持たずフィールドの型だけのタプル構造体が存在する。
+struct Color(i32, i32, i32);
+let black = Color(0, 0, 0);
+
+タプル構造体は同じ数の同じ型からできていたとしても互換性はない。意味が違うから当然といえば当然だが。
+インスタンスはタプルと同じように振る舞うので、分配して個々の部品にしたり、ドットと添字を使用して個々の値にアクセスして使ったりできる。
+
+一切フィールドのない構造体を定義することもできる。
+これはユニット型と似たような振る舞いをするのでユニット様構造体と呼ばれる。
+ある型にトレイトを実装するけども、型自体に保持させるデータは一切ない場面に有効になる。
+トレイトの話はまだなのでよくわかってない。
