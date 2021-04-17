@@ -297,3 +297,39 @@ let black = Color(0, 0, 0);
 構造体の宣言時に#[derive(Debug)]
 を追加することによって、println!("{:?}")という形で出力形式を定義しなくとも表示させることが可能になる。
 また、{:#?}を代わりに使うことにより、改行が入り、見やすくなる。
+
+
+#[derive(Debug)]
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+impl Rectangle {
+    fn area(&self) -> u32 {
+        self.width * self.height
+    }
+}
+
+fn main() {
+    let rect1 = Rectangle { width: 30, height: 50 };
+
+    println!(
+        "The area of the rectangle is {} square pixels.",
+        rect1.area()
+    );
+}
+
+ある構造体のクラスメソッドとして定義するためには、implブロックを始め、その中で関数を定義する。
+また、それらの関数の第一引数は必ずselfになる。
+selfの方が構造体の型であることがわかっているため、不変でselfを借用したり、可変でselfを借用したりできる。つまり、他の引数と同じ。
+
+Rustでは自動参照および参照外しという機能があり、メソッド呼び出しを行うときに自動で&、&mut、*を付与してくれる。
+
+implブロックの中では、selfを引数に取らない関数を定義することができる。これは構造体自体に関連付けられているので、関連関数と呼ばれる。
+この関連関数は構造体の新規インスタンスを返すコンストラクタによく使用される。
+関連関数の呼び出しは::を使用する。
+let sq = Rectangle::square(3);
+みたいな感じで使う。これまで使ったものだとString::from()とかも関連関数。
+
+implブロックは同じ構造体に対してでも、分割して書くことができる。
