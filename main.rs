@@ -1,17 +1,11 @@
+#[derive(Debug)]
+struct Rectangle{
+    width: u32,
+    height: u32,
+}
+
 fn main(){
-    let user = build_user(String::from("aaa.com"), String::from("tas"));
+    let rect1 = Rectangle{width: 30,height: 50};
 
-    println!("{}:{}",user.email,user.username);
-}
-
-struct User{
-    email: String,
-    username: String
-}
-
-fn build_user(Email:String, Username: String)-> User{
-    User{
-        Email,
-        Username
-    }
+    println!("rect1 is {:#?}",rect1);
 }
