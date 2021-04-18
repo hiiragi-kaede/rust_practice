@@ -333,3 +333,60 @@ let sq = Rectangle::square(3);
 みたいな感じで使う。これまで使ったものだとString::from()とかも関連関数。
 
 implブロックは同じ構造体に対してでも、分割して書くことができる。
+
+
+RustのEnumはstructと同じように宣言する
+enum IpAddrKind{
+    V4,
+    V6,
+}
+列挙型なので、あり得る状態をすべて表せるときに使う。
+使用時は
+let four = IpAddrKind::V4;
+let six = IpAddrKind::V6;
+また、関数を列挙子の全てに対応させられる。
+fn route(ip_type: IpAddrKind){ }
+
+ただし、このままだと実際のデータを保持できない。そこで、enumの値と結び付けられる値をともに保存できる。
+
+enum IpAddr{
+    V4(String),
+    V6(String),
+}
+let home = IpAddr::V4(String::from("127.0.0.1"));
+let loopback = IpAddr::V6(String::from("::1"));
+
+enumの各列挙子にデータを直接添付できるので、余計な構造体を作る必要はない。
+また、各列挙子に紐付けるデータの型は異なっても良い。
+それどころか各列挙子に紐付ける型を構造体にすることで無限の可用性がある。
+
+enum Message {
+    Quit,
+    Move { x: i32, y: i32 },
+    Write(String),
+    ChangeColor(i32, i32, i32),
+}
+
+こんな感じで多様な種類の命令を列挙型として定義できる。
+
+enumもimplを用いてenumにもメソッドを定義することができる。
+
+enumで有用なものとして、Optionが存在する。
+
+enum Option<T> {
+    Some(T),
+    None,
+}
+定義としてはこれだけ。他言語のnullの処理に相当するもの。
+
+let some_number = Some(5);
+let some_string = Some("a string");
+
+let absent_number: Option<i32> = None;
+
+こんな感じで使う。注意点としてはNoneを指定するときは必ずOption<T>の型が何になるかを教えなければならない。
+値が存在する時、Someに保持されている。一方で、None値がある時nullと同じことを意図する。
+
+Option<T>とTは型が違うためにコンパイルがうまくいかなくなるため、値を使う前にnullであることをチェックする必要がなくなる。
+つまり、値を保持していない可能性を心配する必要がなくなる。
+nullになる可能性のある値を保持するためにはその値の方をOption<T>にすることで明示的に同意しなければならない。
