@@ -439,3 +439,22 @@ match some_u8_value {
     7 => println!("seven"),
     _ => (),
 }
+
+
+また、一つのパターンにのみ注目したい場合match文は冗長なので、if letを使うことができる。
+
+if let Some(3) = some_u8_value{
+    println!("this is three");
+}
+
+これにより簡単に書けるようになるが、matchでは強制された包括性チェックを失ってしまう。
+つまり簡潔性と包括性チェックはトレードオフの関係にある。
+
+matchにおける_に対応して、elseを使うこともできる。
+let mut count = 0;
+if let Coin::Quarter(state) = coin {
+    println!("State quarter from {:?}!", state);
+} else {
+    count += 1;
+}
+
