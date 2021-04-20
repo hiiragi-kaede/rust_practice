@@ -458,3 +458,40 @@ if let Coin::Quarter(state) = coin {
     count += 1;
 }
 
+
+モジュールはmodキーワードを書き、次にモジュールの名前を指定することで定義する。
+また、モジュールの中には他のモジュールを置くこともできる。
+モジュールツリー全体が、暗黙のうちに作られたcrateというモジュールの下にある。
+
+モジュールの中で公開するAPIについてはpubキーワードを付ける。
+また、デフォルトではモジュールはprivateなので、関数や構造体を非公開にしたければモジュールに入れれば良い。
+
+親モジュールの要素は子モジュールの非公開要素を使えないが、子モジュールの要素はその祖先モジュールの要素を使える。
+注意すべきはモジュール自体をpubにしたところで、中身を公開することまでは指定されていない。
+つまり、公開したいものは順々にpubに指定しなければいけない。
+
+自分の親モジュールの中にある関数に関してはsuper::を使うことでアクセスできる。
+ディレクトリ操作における../みたいなもの。
+
+構造体は各要素ごとにアクセスできるかできないかを指定することができる。
+非公開時は何も書かない。公開するときは宣言時にpubをつける。
+
+非公開のフィールドにアクセスしようとするとコンパイル時にエラーを出してくれる。
+error[E0616]: field `seasonal_fruit` of struct `Breakfast` is private
+  --> lib.rs:56:10
+   |
+56 |     meal.seasonal_fruit = String::from("blueberries");
+   |          ^^^^^^^^^^^^^^ private field
+
+error: aborting due to previous error
+
+For more information about this error, try `rustc --explain E0616`.
+
+
+一方で、enumを公開するとその中身は全て公開される。
+pub enum Appetizer{
+    Soup,
+    Salad,
+}
+この例ではAppetizer::SoupもAppetizer::Saladにもアクセスできる。
+
