@@ -703,3 +703,101 @@ for c in "नमस्ते".chars() {
 
 また、bytesメソッドは各バイトをそのまま返すので、使える時があるかもしれない。
 このときはマルチバイト文字も切れ目を無視して返されるので注意。
+
+
+HashMap<K,V>はK型のキーとV型の値の対応関係を保持する。これをハッシュ関数を介して行う。
+
+使用する際には
+use std::collections::HashMap;
+let mut scores = HashMap::new();
+
+scores.insert(String::from("Blue"),10);
+scores.insert(String::from("White"),50);
+
+HashMapはベクタやStringに比べて使用頻度が低いため、標準ライブラリのコレクション部分からuseする必要がある。
+ベクタと同様に、ハッシュマップはデータをヒープに保持する。
+このハッシュマップではStringをキーにi32を保持する。また、キーも値も全て同じ型でなければならない。
+
+別の作り方としてはタプルのベクタに対してcollectメソッドを使用する方法。
+
+use std::collections::HashMap;
+
+let teams  = vec![String::from("Blue"), String::from("Yellow")];
+let initial_scores = vec![10, 50];
+
+let scores: HashMap<_, _> = teams.iter().zip(initial_scores.iter()).collect();
+
+
+zipメソッドによってタプルのベクタを作り上げることができ、それをcollectメソッドによってタプルのベクタをハッシュマップに変換している。
+ここではHashMap<_,_>という型注釈が必要になる。collectメソッドはいろいろなデータ構造にまとめ上げることができてしまうので、どの型に変換したいかは自分で指定する必要がある。
+しかし、キーと値の型に関してはアンダースコアで、コンパイラはベクタのデータ型に基づいてハッシュマップが含む型を推論することができる。
+
+i32などのCopyトレイトを実装する型については値はハッシュマップにコピーされる。
+insertを呼び出して渡した変数がハッシュマップにムーブされた後は、その変数を使用できなくなる。
+
+error[E0382]: borrow of moved value: `field_name`
+  --> main.rs:13:15
+   |
+4  | let field_name = String::from("Favorite color");
+   |     ---------- move occurs because `field_name` has type `String`, which does not implement the `Copy` trait
+...
+8  | map.insert(field_name, field_value);
+   |            ---------- value moved here
+...
+13 | println!("{}",field_name);
+   |               ^^^^^^^^^^ value borrowed here after move
+
+実際に使ってみるとこのようなエラーが出る。
+値への参照をハッシュマップに挿入したら値はハッシュマップにムーブされない。
+参照が指している値は、最低でもハッシュマップが有効な間は有効でなければならない。
+
+ハッシュマップの値にアクセスするためにはキーをgetメソッドに提供する。
+
+scores.insert(String::from("Blue"), 10);
+scores.insert(String::from("Yellow"), 50);
+
+let team_name = String::from("Blue");
+let score = scores.get(&team_name);
+
+こんな感じで使い、getはOption<&V>を返す。ここでの結果はSome(&10)となる。
+キーに対応する値がハッシュマップに存在しなければgetはNoneを返す。
+
+走査するためにはforループを活用できる。
+
+for (key,value) in &scores{
+    println!("{}: {}",key,value);
+}
+
+これは各ペアを任意の順番で出力する。
+
+ハッシュマップの更新にはいくつか方法がある。
+値を上書きするためにはinsertで同じ名前のキーで別の値を入れれば良い。最後にinsertした値になる。
+
+キーに値がなかったときのみ値を挿入することも可能で、entryと呼ばれる特別なAPIを通して行われる。
+
+scores.insert(String::from("Blue"), 10);
+
+scores.entry(String::from("Yellow")).or_insert(50);
+scores.entry(String::from("Blue")).or_insert(50);
+
+or_insertのメソッドに渡した値が、キーが存在しなかったときに代入する値になっている。
+
+
+let text = "hello world wonderful world";
+
+let mut map = HashMap::new();
+
+for word in text.split_whitespace() {
+    let count = map.entry(word).or_insert(0);
+    *count += 1;
+}
+
+println!("{:?}", map);
+
+この出力は
+{"hello": 1, "wonderful": 1, "world": 2}
+のようになる。
+
+or_insertは実際はこのキーに対する値への可変参照を返す。つまりその可変参照を変数に保持することにより、
+参照外しをして変更ができる。これがキーの値を古い値に基づいて更新する方法。
+
