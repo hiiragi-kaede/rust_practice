@@ -817,3 +817,118 @@ panic!によって表示されるエラーメッセージにパニックを起�
 
 RUST_BACKTRACE環境変数を0以外の値にセットするとバックトレースがどんどん深く表示されるようになる。
 
+
+例えばファイルを開こうとしたときにstd::fs::File::open()を使うと、返り値はResult。
+これにより
+let f:u32 = File::open("hello.txt");
+がエラーになる。返り値はあくまでResult<T,E>である。
+ここでは成功値の型はstd::fs::Fileで、エラー値で使用されている型はstd::io::Error
+
+File::openには成功したか失敗したかを知らせる方法とファイルハンドル。またはエラー情報を与える方法が必要。
+この情報こそがResultのenumが伝達するもの。
+
+File::openが成功した場合、変数fの値はファイルハンドルを含むOkインスタンスになる。
+失敗した場合には、発生したエラーの種類に関する情報をより多く含むErrインスタンスがfの値になる。
+
+
+use std::fs::File;
+
+fn main() {
+    let f = File::open("hello.txt");
+
+    let f = match f {
+        Ok(file) => file,
+        Err(error) => {
+            // ファイルを開く際に問題がありました
+            panic!("There was a problem opening the file: {:?}", error)
+        },
+    };
+}
+
+こんな感じでファイルを開けたかどうかで分岐させる。
+
+エラーによって動作を変えたいときにはmatch文で別々に分岐させることができる。
+
+use std::fs::File;
+use std::io::ErrorKind;
+
+fn main() {
+    let f = File::open("hello.txt");
+
+    let f = match f {
+        Ok(file) => file,
+        Err(ref error) if error.kind() == ErrorKind::NotFound => {
+            match File::create("hello.txt") {
+                Ok(fc) => fc,
+                Err(e) => {
+                    panic!(
+                        //ファイルを作成しようとしましたが、問題がありました
+                        "Tried to create file but there was a problem: {:?}",
+                        e
+                    )
+                },
+            }
+        },
+        Err(error) => {
+            panic!(
+                "There was a problem opening the file: {:?}",
+                error
+            )
+        },
+    };
+}
+
+この場合はファイルが見つからないエラーならファイルを生成して、それ以外のエラーならpanicさせている。
+
+if error.kind() == ErrorKind::Notfoundという条件式はマッチガードと呼ばれる。
+アームのパターンを更に洗練するmatchアーム上のおまけの条件式。
+refを使っているのはerrorがガード条件式にムーブされないように必須。
+refを使用して＆の代わりに使っている理由はあとで詳しく解説するらしい。
+
+matachはいささか冗長なのでショートカットがある。
+let f = File::open("hello.txt").unwrap();
+
+を使用すると、Result値がOk列挙子ならunwrapはOkの中身を返す。
+ResultがErr列挙子ならunwrapはpanic!マクロを呼んでくれる。
+
+また、expectというunwrapに似たメソッドが存在するが、これはpanic!のエラーメッセージも選択させてくれる。
+unwrapの代わりにexpectを使用してエラーメッセージを提供するとパニックの原因をたどりやすくなる。
+
+let f = File::open("hello.txt").expect("Failed to open hello.txt");
+
+これはコード内のどこでエラーメッセージが出力されたのかより見つけやすくなる。
+unwrapは全て同じメッセージを出力するのでわかりにくい可能性がある。
+
+
+Result<T,E>を返す関数を作るときには
+let mut f = match f {
+        Ok(file) => file,
+        Err(e) => return Err(e),
+    };
+こんな感じで早期リターンして返り値をエラーで埋めることができる。
+こういったエラーの移譲はRustでは非常に一般的なので?演算子によってしやすくしている。
+
+fn read_username_from_file() -> Result<String, io::Error> {
+    let mut f = File::open("hello.txt")?;
+    let mut s = String::new();
+    f.read_to_string(&mut s)?;
+    Ok(s)
+}
+
+これはさっきのものとほぼ同じことをしている。
+Resultの値がOkならOkの中身がこの式から返ってきて、値がErrならreturnキーワードを使ったかのように関数全体からErrの中身が返ってくる。
+
+match式と?演算子の違いは、?を使ったエラー値は標準ライブラリのFromトレイトで定義され、エラーの方を別のものに変換するfrom関数を通ること。
+これは受け取ったエラー型を現在の関数の戻り値型に変換するため。
+各エラー型がfrom関数を実装して返り値のエラー型への変換を定義している限り、?演算子が返還の面倒を自動的に見てくれる。
+
+let mut s = String::new();
+
+    File::open("hello.txt")?.read_to_string(&mut s)?;
+
+    Ok(s)
+
+こんな感じで、?演算子の後のメソッド呼び出しを連結することでコードを短くすることができる。
+
+ちなみに、?演算子はResultの返り値をもつ関数でしか使用が許可されないとコンパイルエラーが出るので、main関数で使ったりはできない。
+Resultを返さない関数ではmatchかResultのメソッドのどれかを使う必要がある。
