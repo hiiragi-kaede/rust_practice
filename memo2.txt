@@ -76,3 +76,203 @@ impl<T, U> Point<T, U> {
 V,Wはこのメソッドにしか関係のないジェネリック型。
 
 ジェネリクスを使う場合でもパフォーマンスが悪くならないために、コンパイル時にジェネリック型に具体的な型を埋め込むようにしている。
+
+
+トレイトはRustコンパイラに、特定の型に存在し、他の型と共有できる機能について知らせる。
+トレイトを使用すると、共通の振る舞いを抽象的に定義できる。
+違いはあるけども、トレイとは他の言語でよくインターフェースと呼ばれている機能に類似している。
+
+pub trait Summary{
+    fn summarize(&self) -> String;
+}
+
+こんな感じで複数の構造体で使うためのメソッドを定義することが出来る。
+traitキーワードの後にトレイト名を使用してトレイトを定義している。今回はSummaryという名前。
+トレイトを実装する方の振る舞いを記述するメソッドシグニチャを定義する。今回はsummarize。
+
+メソッドシグニチャの後には波括弧と関数の実装を記述するのではなくセミコロンを使用する。
+このトレイトを実装する型はそれぞれ、メソッド本体に独自の振る舞いを提供しなければならない。
+Summaryトレイトを保持するあらゆる型に、このシグニチャと全く同じメソッドsummarizeが定義されていることが強制される。
+トレイトは本体に複数のメソッドを含むことが出来る。メソッドシグニチャは行ごとに並べられ、各行はセミコロンで終わる。
+
+pub struct NewsArticle {
+    pub headline: String,
+    pub location: String,
+    pub author: String,
+    pub content: String,
+}
+
+impl Summary for NewsArticle {
+    fn summarize(&self) -> String {
+        format!("{}, by {} ({})", self.headline, self.author, self.location)
+    }
+}
+
+pub struct Tweet {
+    pub username: String,
+    pub content: String,
+    pub reply: bool,
+    pub retweet: bool,
+}
+
+impl Summary for Tweet {
+    fn summarize(&self) -> String {
+        format!("{}: {}", self.username, self.content)
+    }
+}
+
+実際に構造体にトレイトを実装するときはこのように使う。
+implの後に実装したいトレイトの名前を書き、それからforキーワード、そしてトレイトの実装対象の型の名前を指定する。
+トレイトで指定した引数と返り値を持ったメソッドを実装する必要がある。
+
+呼び出しは普通に
+let tweet = Tweet{<適当な初期化>}
+tweet.summarize();
+のような感じで出来る。
+
+トレイトを実装する際にはクレート専用にし、use <クレート名>;
+でスコープに取り込む。この際には他のクレートがトレイトを実装するためには公開トレイトである必要がある。
+そのためにはpub traitとすればよい
+
+また、トレイト実装で注意しなければいけないのは、トレイトか対象の型が自分のクレートに固有であるときのみ型に対してトレイトを実装できる。
+Displayのような標準ライブラリのトレイトを自作クレートの機能の一部として独自の型に実装できる。
+これは独自の型が自作クレートに固有だから。
+しかし、外部のトレイトを外部の型に対して実装することはできない。
+自作クレート内でVec<T>に対してDisplayトレイトを実装することはできない。
+これは他の人が自分のコードを壊したり、その逆が起こらないことを保証してくれる。
+また、2つのクレートが同じ型に同じトレイトを実装できてしまい、コンパイラがどちらの実装を使うべきかわからなくなってしまうため。
+
+pub trait Summary{
+    fn summarize(&self) -> String{
+        String::from("(Read more...)")
+    }
+}
+このようにすることでトレイトのデフォルト実装を決めることが出来る。
+デフォルト実装を利用する際には
+impl Summary for NewsArticle{ }
+のようにする。
+
+デフォルト実装を用意しても、実装しているところを書き換える必要はない。
+理由はデフォルト実装をオーバーライドする記法はデフォルト実装のないトレイトメソッドを実装する記法と一緒だから。
+
+トレイトのデフォルト実装として、トレイト自身のデフォルト実装のない他のメソッドを呼び出すことが出来る。
+
+pub fn notify(item: &impl Summary) {
+    println!("Breaking news! {}", item.summarize());
+}
+このような形で、引数のitemには具体的な型がなく、implキーワードとトレイト名を指定する。
+この引数は指定されたトレイトを実装しているあらゆる型を受け付ける。
+そして、そのトレイトに由来するあらゆるメソッドを呼び出すことが出来る。
+
+pub fn notify(item1: &impl Summary, item2: &impl Summary) {}
+この書き方はどちらも同じトレイトを実装する限りitem1と2で型が異なっていても良いとしている。
+両方の方が同じ方であることを強制するときにはトレイト境界を使って表現する。
+pub fn notify<T: Summary>(item1: &T, item2: &T) {}
+
+複数のトレイトの実装を要求する場合には+構文を使って指定する。
+pub fn notify(item: &(impl Summary + Display)) {}
+pub fn notify<T: Summary + Display>(item: &T) {}
+
+
+また、下のようにあまりに多くのトレイト境界を持つ場合はwhere句を使ってわかりやすく書き直すことが出来る。
+fn some_function<T: Display + Clone, U: Clone + Debug>(t: &T, u: &U) -> i32 {}
+
+fn some_function<T, U>(t: &T, u: &U) -> i32
+    where T: Display + Clone,
+          U: Clone + Debug
+{}
+
+
+pub trait Summary {
+    fn summarize(&self) -> String;
+}
+
+pub struct NewsArticle {
+    pub headline: String,
+    pub location: String,
+    pub author: String,
+    pub content: String,
+}
+
+impl Summary for NewsArticle {
+    fn summarize(&self) -> String {
+        format!("{}, by {} ({})", self.headline, self.author, self.location)
+    }
+}
+
+pub struct Tweet {
+    pub username: String,
+    pub content: String,
+    pub reply: bool,
+    pub retweet: bool,
+}
+
+impl Summary for Tweet {
+    fn summarize(&self) -> String {
+        format!("{}: {}", self.username, self.content)
+    }
+}
+
+fn returns_summarizable() -> impl Summary {
+    Tweet {
+        username: String::from("horse_ebooks"),
+        content: String::from(
+            "of course, as you probably already know, people",
+        ),
+        reply: false,
+        retweet: false,
+    }
+}
+このように具体的な型が何かを言うことなく、自作トレイトを実装しているなにかの型を返す。
+関数の中ではきちんとTweetという型を返しているが、そのことを明示していない。
+
+しかし、if文などで分岐してトレイトを実装する複数の型を返すことは許されていない。
+
+19行目のエラーを消すためには、比較が可能であることを意味するstd::cmp::PartialOrdトレイトを実装している型のみを引数に取るようにすればよい。
+fn largest<T: PartialOrd>(list: &[T]) -> T {
+    let mut largest = list[0];
+
+    for &item in list {
+        if item > largest {
+            largest = item;
+        }
+    }
+
+    largest
+}
+今回はこんな感じになる。
+しかし、今回はlist[0]やforでitemに渡したりしていて、ムーブが行われてしまう可能性がある。
+これはCopyトレイトを実装しない型を含む可能性があるから起こっているエラー。
+よって
+fn largest<T: PartialOrd + Copy>(list: &[T]) -> T{}
+とすれば解決。
+
+
+use std::fmt::Display;
+
+struct Pair<T> {
+    x: T,
+    y: T,
+}
+
+impl<T> Pair<T> {
+    fn new(x: T, y: T) -> Self {
+        Self { x, y }
+    }
+}
+
+impl<T: Display + PartialOrd> Pair<T> {
+    fn cmp_display(&self) {
+        if self.x >= self.y {
+            println!("The largest member is x = {}", self.x);
+        } else {
+            println!("The largest member is y = {}", self.y);
+        }
+    }
+}
+このようにすることで、Pairに保有される型Tが比較可能にするPartialOrdトレイトと、出力を可能にするDisplayトレイトを実装しているときのみメソッドを実装できる。
+
+また、別のトレイトを実装するあらゆる方に対するトレイト実装を条件分岐することも出来る。
+トレイト境界を満たすあらゆる方にトレイトを実装することはブランケット実装と呼ばれ、Rustの標準ライブラリでよく使われている。
+例えばDisplayトレイトを実装するあらゆる方にToStringトレイトを実装している。
+impl<T: Display> Tostring for T{ }
