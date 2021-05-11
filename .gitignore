@@ -6,3 +6,4 @@ hello_cargo/target
 variables/target
 restaurant/target
 adder/target
+minigrep/target
