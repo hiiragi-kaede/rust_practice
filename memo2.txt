@@ -693,3 +693,7 @@ pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
 今回の処理では、返却されるベクタはquery引数ではなく、contents引数のスライスを参照する文字列スライスを含むべきということを示唆している。
 考えなくてはいけないが、例えばquery引数を含む返り値を返すときはコンパイルエラーが出るので多分そんなに気にしなくともよい。
 
+
+環境変数を指定するときはpowershellを使っている場合は
+ $env:CASE_INSENSITIVE=1
+のようにすることで、環境変数CASE_INSENSITIVEを変更することができる。
