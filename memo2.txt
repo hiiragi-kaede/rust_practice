@@ -697,3 +697,5 @@ pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str> {
 環境変数を指定するときはpowershellを使っている場合は
  $env:CASE_INSENSITIVE=1
 のようにすることで、環境変数CASE_INSENSITIVEを変更することができる。
+
+標準出力へはprintln!で、エラー出力へはeprintln!で出力をすることが出来る。
