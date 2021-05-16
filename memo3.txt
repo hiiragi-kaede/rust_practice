@@ -149,3 +149,130 @@ fn main() {
 
 Fnトレイトのどれかを指定する殆どの場合、Fnから始めるとコンパイラがクロージャ本体内で起こっていることを解析し、
 FnMutやFnOnceが必要な場合教えてくれる。
+
+
+イテレータはただ単に生成するだけでは何も意味がない。
+一番単純な使用方法はforループに活用すること。
+
+let v1 = vec![1,2,3];
+
+for val in v1.iter(){
+    println!("Got: {}",val);
+}
+
+添字アクセスをすることによってエラーを生み出してしまうことがありうるので、このような拡張for的な使い方が一番単純。
+
+全てのイテレータは標準ライブラリで定義されているIteratorというトレイトを実装している。
+pub trait Iterator {
+    type Item;
+
+    fn next(&mut self) -> Option<Self::Item>;
+
+    // デフォルト実装のあるメソッドは省略
+    // methods with default implementations elided
+}
+
+このように定義されている。type ItemによりIteratorトレイトを実装するためにはItem型も定義する必要があり、
+Item型がnextメソッドの返り値の型に使われている。
+
+nextメソッドは一度にSomeに包まれたイテレータの一要素を返し、繰り返しが終わったらNoneを返すことだけを要求している。
+nextメソッドは直接呼び出すことも出来るが、let mut v1_iter = v1.iter()というように可変にする必要があることに注意。
+forループで使う際にはループがv1_iterの所有権を奪って可変にしているため、ループで使う際には可変にする必要はない。
+
+nextを呼び出すメソッドは消費アダプタ(consuming adaptors)と呼ばれる。
+呼び出しがイテレータを使い込むので、そういったメソッドを使った後に渡したイテレータに所有権は無いために、
+メソッド呼び出し後にイテレータを使うことはできなくなる。
+一例としてsumメソッドなど。
+
+let total: i32 = v1_iter.sum();
+
+のような感じ。このあとv1_iterは使うことができなくなる。
+
+
+Iteratorトレイトに定義された他のメソッドとしてイテレータアダプタとして知られている。
+イテレータを別の種類のイテレータに替えてくれる。とはいえ、消費アダプタメソッドのどれかを呼び出し、イテレータアダプタの呼び出しから結果を得る必要がある。
+
+イテレータアダプタメソッドのmapでは各要素に対して呼び出すクロージャを取り、新しいイテレータを作成する。
+
+let v1: Vec<i32> = vec![1, 2, 3];
+let v2: Vec<_> = v1.iter().map(|x| x + 1).collect();
+//v2 = [2, 3, 4]
+
+ここで使っているVec<_>に関しては、代入するために渡しているもので型が明示的に示されているので省略できるというもの。
+とりあえず適当に使ってもだめならコンパイラがエラー出してくれると思うので使えそうな機能。
+
+
+#[derive(PartialEq, Debug)]
+struct Shoe {
+    size: u32,
+    style: String,
+}
+
+fn shoes_in_my_size(shoes: Vec<Shoe>, shoe_size: u32) -> Vec<Shoe> {
+    shoes.into_iter()
+        .filter(|s| s.size == shoe_size)
+        .collect()
+}
+
+#[test]
+fn filters_by_size() {
+    let shoes = vec![
+        Shoe { size: 10, style: String::from("sneaker") },
+        Shoe { size: 13, style: String::from("sandal") },
+        Shoe { size: 10, style: String::from("boot") },
+    ];
+
+    let in_my_size = shoes_in_my_size(shoes, 10);
+
+    assert_eq!(
+        in_my_size,
+        vec![
+            Shoe { size: 10, style: String::from("sneaker") },
+            Shoe { size: 10, style: String::from("boot") },
+        ]
+    );
+}
+こんな形でfileterメソッドはイテレータの各要素をとり、論理値を返すクロージャを取る。
+最終的にcollectを呼び出す必要があることを忘れずに。
+
+
+struct Counter {
+    count: u32,
+}
+
+impl Counter {
+    fn new() -> Counter {
+        Counter { count: 0 }
+    }
+}
+
+impl Iterator for Counter {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.count += 1;
+
+        if self.count < 6 {
+            Some(self.count)
+        } else {
+            None
+        }
+    }
+}
+
+独自のイテレータを作成する際にはnextメソッドさえ定義していれば何でも良い。
+例えば1~5までの値を順に返すイテレータを作成する例が上にある。
+
+
+#[test]
+fn using_other_iterator_trait_methods() {
+    let sum: u32 = Counter::new().zip(Counter::new().skip(1))
+                                 .map(|(a, b)| a * b)
+                                 .filter(|x| x % 3 == 0)
+                                 .sum();
+    assert_eq!(18, sum);
+}
+例えばこんな複雑な形でイテレータを使うことも出来る。
+1~5を返すイテレータを2つ生成し、一つは最初の1つの要素をスキップし、くっつける。
+それらの組同士をかけ合わせ、3で割り切れるものだけを残して合計を求めている。
+zipは(5,None)に対しては組を生成しないので、今回生成されるのは4組のみであることに注意。
