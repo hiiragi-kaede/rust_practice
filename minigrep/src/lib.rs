@@ -10,12 +10,18 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(args: &[String]) -> Result<Config, &'static str> {
-        if args.len() < 3{
-            return Err("not enough arguments");
-        }
-        let query = args[1].clone();
-        let filename = args[2].clone();
+    pub fn new(mut args: std::env::Args) -> Result<Config, &'static str> {
+        args.next();//プログラム名はスキップする
+
+        let query = match args.next(){
+            Some(arg) => arg,
+            None => return Err("Didn't get a query string"),
+        };
+
+        let filename = match args.next(){
+            Some(arg) => arg,
+            None => return Err("Didn't get a file name"),
+        };
 
         //varは環境変数が存在しているかのResultを返すが、今回はエラーハンドリングは必要ないため、is_errでbool値に変換するだけでよい。
         let case_sensitive = env::var("CASE_INSENSITIVE").is_err();
@@ -44,31 +50,30 @@ pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
 }
 
 pub fn search<'a>(query: &str, contents: &'a str) -> Vec<&'a str>{
-    let mut results = Vec::new();
-
-    for line in contents.lines(){//イテレータを返す
-        if line.contains(query){//現在の行がクエリ文字列を含むかを確認する
-            results.push(line);
-        }
-    }
-
-    results
+    contents.lines()
+        .filter(|line| line.contains(query))
+        .collect()
 }
 
 pub fn search_case_insensitive<'a>(query: &str, contents: &'a str) -> Vec<&'a str>{
-    let query = query.to_lowercase();//全て小文字に変換。返り値は文字列スライスではなくString
-    let mut results = Vec::new();
+    // let query = query.to_lowercase();//全て小文字に変換。返り値は文字列スライスではなくString
+    // let mut results = Vec::new();
 
-    for line in contents.lines(){//イテレータを返す
-        //containsは文字列スライスを取るように定義されているので&stringを渡すようにしている
-        if line.to_lowercase().contains(&query){
-            //現在の行がクエリ文字列を含むかを確認する。
-            //行自体も小文字に変換しているので大文字小文字を区別しなくなっている。
-            results.push(line);
-        }
-    }
+    // for line in contents.lines(){//イテレータを返す
+    //     //containsは文字列スライスを取るように定義されているので&stringを渡すようにしている
+    //     if line.to_lowercase().contains(&query){
+    //         //現在の行がクエリ文字列を含むかを確認する。
+    //         //行自体も小文字に変換しているので大文字小文字を区別しなくなっている。
+    //         results.push(line);
+    //     }
+    // }
 
-    results
+    // results
+    contents.lines()
+        .filter(|line|{
+            line.to_lowercase().contains(&query.to_lowercase())
+        })
+        .collect()
 }
 
 #[cfg(test)]
