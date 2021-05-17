@@ -33,14 +33,6 @@ impl Config {
 ///引数で受け取ったconfigに合わせてcontentsの中からqueryが存在するかを調べる。
 /// case_sensitiveがtrueなら大文字小文字を区別して調べるが、
 /// falseなら区別せずに調べる。
-/// 
-/// #Example
-/// 
-///``` 
-/// if let Err(e) =minigrep::run(config){
-///eprintln!("Application error: {}",e);
-///}
-/// ```
 pub fn run(config: Config) -> Result<(), Box<dyn Error>> {
     let mut f = File::open(config.filename)?;
 
