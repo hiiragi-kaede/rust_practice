@@ -863,3 +863,148 @@ RefCell<T>を使用することで表面上は不変なList値を持てる。
 標準ライブラリにはCell<T>などの内部可変性を提供する他の方もあり、この型は内部値への参照を与える代わりに、
 値はCell<T>の内部や外部へコピーされる点を除いて似ている。
 また、Mutex<T>もあり、これはスレッド間で使用するのが安全な内部可変性を提供する。16章で使いみちについて教えてくれる。
+
+
+Rustにおけるメモリ安全保障により、メモリリークを発生しにくくはなっているが、完全に防ぐことはできない。
+Rc<T>とRefCell<T>を使うことによってメモリリークを簡単に引き起こすことが出来る。
+互いに循環して参照する参照を生成した場合、循環の各要素の参照カウントが絶対に0にならず、メモリリークを引き起こして値がドロップされない。
+循環参照は簡単に出来ることではないが、不可能というわけでもない。
+Rc<T>値を含むRefCell<T>値があるなどの内部可変性と参照カウントのある型がネストして組み合わさっていたら、
+循環していないことを保証しなければならなく、コンパイラがそれを補足することを信頼できない。
+
+循環参照を回避する別の解決策は、ある参照は所有権を表現して他の参照はしないというようにデータ構造を再構成すること。
+結果として所有権のある関係と所有権のない関係からなる循環ができ、所有権のある関係だけが、値がドロップするかどうかに影響する。
+
+循環参照を回避するためにはRc::cloneを呼び出す代わりにRc::downgradeを呼び出し、Rc<T>への参照を渡すことにより、
+Rc<T>インスタンス内部の値への弱い参照を作ることが上げられる。
+これは強い参照で行っているRc<T>インスタンスの所有権の共有とは異なり、Rc<T>が片付けられた時点で参照が破壊されることにより、循環が起こらなくなっている。
+また、Rc<T>が片付けられるときにstrong_countは0になっていなければならないが、weak_countは0である必要はない。
+
+Weak<T>が参照する値はドロップされている可能性があるために、値の存在確認を使用前に行わなければならない。
+Weak<T>のupgradeメソッドを呼び出すことによりOption<Rc<T>>が返され、Someの結果によりドロップされているかを調べられる。
+ドロップ済ならNoneが得られ、ドロップ前ならOption<Rc<T>>が得られる。
+
+
+使用例として、子ノードを知っているノードのある木を構成する。
+
+use std::rc::Rc;
+use std::cell::RefCell;
+
+#[derive(Debug)]
+struct Node {
+    value: i32,
+    children: RefCell<Vec<Rc<Node>>>,
+}
+
+Nodeは子供を所有し、木の各Nodeに直接アクセス出来るように、その所有権を変数と共有したい。
+そのため、Vec<T>要素を型Rc<Node>の値になるように定義している。
+どのノードが他のノードの子供になるかも変更したいので、Vec<Rc<Node>>の周りのchildrenをRefCell<T>にしている。
+
+fn main() {
+    let leaf = Rc::new(Node {
+        value: 3,
+        children: RefCell::new(vec![]),
+    });
+
+    let branch = Rc::new(Node {
+        value: 5,
+        children: RefCell::new(vec![Rc::clone(&leaf)]),
+    });
+}
+
+leafを子ノードにもつbranchというインスタンスを作成している。
+このままでは親ノードは子ノードを知っているが、子ノードが親を知ることができていない。
+ここでNode構造体に新たにparentフィールドを追加したいが、その型はRc<T>を含んではいけない。これは循環参照になるため。
+つまり、親ノードがドロップされたら子ノードもドロップされるべきなので親は子を所有すべきだが、子供は親を所有すべきではない。
+子ノードがドロップされても、親は存在すべきなので、ここで弱い参照の使い所。
+
+use std::rc::{Rc, Weak};
+use std::cell::RefCell;
+
+#[derive(Debug)]
+struct Node {
+    value: i32,
+    parent: RefCell<Weak<Node>>,
+    children: RefCell<Vec<Rc<Node>>>,
+}
+
+fn main() {
+    let leaf = Rc::new(Node {
+        value: 3,
+        parent: RefCell::new(Weak::new()),
+        children: RefCell::new(vec![]),
+    });
+
+    // leafの親 = {:?}
+    println!("leaf parent = {:?}", leaf.parent.borrow().upgrade());
+    //これは "leaf parent = None"
+
+    let branch = Rc::new(Node {
+        value: 5,
+        parent: RefCell::new(Weak::new()),
+        children: RefCell::new(vec![Rc::clone(&leaf)]),
+    });
+
+    *leaf.parent.borrow_mut() = Rc::downgrade(&branch);
+    //RefCell<Weak<Node>>のborrow_mutメソッドを使用した後にRc::downgrade関数を使用して、
+    //branchのRc<Node>からbranchへのWeak<Node>参照を作る。
+
+    println!("leaf parent = {:?}", leaf.parent.borrow().upgrade());
+}
+
+最後の出力は
+leaf parent = Some(Node { value: 5, parent: RefCell { value: (Weak) },
+children: RefCell { value: [Node { value: 3, parent: RefCell { value: (Weak) },
+children: RefCell { value: [] } }] } })
+このように変化する。
+
+
+fn main() {
+    let leaf = Rc::new(Node {
+        value: 3,
+        parent: RefCell::new(Weak::new()),
+        children: RefCell::new(vec![]),
+    });
+
+    println!(
+        // leafのstrong_count = {}, weak_count = {}
+        "leaf strong = {}, weak = {}",
+        Rc::strong_count(&leaf),
+        Rc::weak_count(&leaf),
+    );
+    //ここはstrong:1、weak:0
+
+    {
+        let branch = Rc::new(Node {
+            value: 5,
+            parent: RefCell::new(Weak::new()),
+            children: RefCell::new(vec![Rc::clone(&leaf)]),
+        });
+
+        *leaf.parent.borrow_mut() = Rc::downgrade(&branch);
+
+        println!(
+            // branchのstrong_count = {}, weak_count = {}
+            "branch strong = {}, weak = {}",
+            Rc::strong_count(&branch),
+            Rc::weak_count(&branch),
+        );
+        //ここにくるとstrong:1、weak:1
+
+        println!(
+            "leaf strong = {}, weak = {}",
+            Rc::strong_count(&leaf),
+            Rc::weak_count(&leaf),
+        );
+        //ここはbranchが増えたのでstrong:2、weak:0
+    }
+
+    println!("leaf parent = {:?}", leaf.parent.borrow().upgrade());
+    println!(
+        "leaf strong = {}, weak = {}",
+        Rc::strong_count(&leaf),
+        Rc::weak_count(&leaf),
+    );
+    //branchはスコープを抜けてドロップされているのでstrong:1、weak:0
+    //leafのparentはドロップされたのでNone値に戻っている。
+}
