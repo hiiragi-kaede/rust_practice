@@ -104,3 +104,181 @@ fn main() {
 
 コンパイルエラーに従ってmoveキーワードを付けることにより、クロージャに使用している値の所有権を強制的に奪わせることが出来る。
 クロージャに値をmoveした場合、借用規則によりメインスレッドではもはやvの値を使うことはできなくなる。
+
+
+安全な平行性を保証する一つのアプローチがメッセージ受け渡し。スレッドやアクターがデータを含むメッセージを相互に送り合うことでやりとりする。
+メッセージ送信平行性を達成するためにRustに存在する一つの主な道具はチャンネルで、Rustの標準ライブラリが実装を提供しているプログラミング概念。
+プログラミングにおけるチャンネルは2つに分けられる。転送機と受信機。
+転送機はアヒルのおもちゃを川に置く上流になり、受信機はアヒルのおもちゃが行き着く下流になる。
+コードのある箇所がそうしたいデータとともに転送機のメソッドを呼び出し、別の部分がメッセージが到着していないか受信側を調べる。
+転送機と受信機のどちらかがドロップされるとチャンネルは閉じられたと言う。
+
+use std::sync::mpsc;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+}
+
+チャンネルを作るだけならこれで大丈夫だが、チャンネル越しにどんな型の値を送りたいのかコンパイラがわからず、コンパイルエラーになるので注意。
+mpscはmultiple producer,single consumerを表している。
+Rustの標準ライブラリがチャンネルを実装している方法は一つのチャンネルが値を生成する複数の送信側と、その値を消費するたった一つの受信側を持つことが出来るということを意味する。
+
+mpsc::channel関数はタプルを返し、1つ目の要素は送信側、2つ目の要素は受信側になる。
+txとrxという略称は伝統的に転送機と受信機にそれぞれ使用されているので、変数をそのように名付ける。
+また、タプルを分配するパターンを伴うlet文を使用している。分配については18章で。
+
+use std::thread;
+use std::sync::mpsc;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let val = String::from("hi");
+        tx.send(val).unwrap();
+    });
+}
+
+このようにthread::spawnで作った新しいスレッドにmoveをすることでtxの所有権をスレッドに渡している。
+立ち上げたスレッドは、メッセージをチャンネルを通して送信できるように、チャンネルの送信側を所有する必要がある。
+
+転送側には送信したい値を引数に取るsendメソッドがある。
+sendメソッドはResult<T,E>型を返すので、既に受信側がドロップされていて、値を送信する先がなければ送信処理はエラーを返す。
+上の例ではunwrapでエラーのときにはパニックさせているが、通常の使い方ではきちんとエラーハンドリングすること。
+
+
+use std::thread;
+use std::sync::mpsc;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let val = String::from("hi");
+        tx.send(val).unwrap();
+    });
+
+    let received = rx.recv().unwrap();
+    // 値は{}です
+    println!("Got: {}", received);
+}
+
+チャンネルの受信側が主に使用するメソッドはrecvとtry_recv。
+recvはreceiveの省略形。
+これはメインスレッドの実行をブロックし、値がチャンネルを流れてくるまで待機する。
+一旦値が送信されたら、recvはResult<T,E>に含んで返す。
+チャンネルの送信側が閉じたら、recvはエラーを返し、もう値は来ないと通知する。
+
+try_recvメソッドはブロックせず、代わりに即座にResult<T,E>を返す。
+メッセージがあった場合はそれを含むOk値、何もメッセージがなければErr値。
+
+メッセージを待つ間にこのスレッドがすることが他にあれば、try_recvは有用。
+try_recvを頻繁に呼び出し、メッセージがあれば処理をし、それ以外の場合は再度チェックするまでの少しの間他の作業をさせることが出来る。
+
+
+use std::thread;
+use std::sync::mpsc;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let val = String::from("hi");
+        tx.send(val).unwrap();
+        // valは{}
+        println!("val is {}", val);
+    });
+
+    let received = rx.recv().unwrap();
+    println!("Got: {}", received);
+}
+
+このようにsendしたあとにvalを使用しようとするとコンパイルエラーが出る。
+一旦値が他のスレッドに送信されたら、再度値を使用しようとする前にそのスレッドが変更したりドロップできてしまう。
+
+use std::thread;
+use std::sync::mpsc;
+use std::time::Duration;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        // スレッドからやあ(hi from the thread)
+        let vals = vec![
+            String::from("hi"),
+            String::from("from"),
+            String::from("the"),
+            String::from("thread"),
+        ];
+
+        for val in vals {
+            tx.send(val).unwrap();
+            thread::sleep(Duration::from_secs(1));
+        }
+    });
+
+    for received in rx {
+        println!("Got: {}", received);
+    }
+}
+
+メインスレッドではrecv関数を明示的には呼んでいないが、代わりにrxをイテレータとして扱っている。
+チャンネルが閉じられると、繰り返しも終わる。
+このコードを走らせると、各行の間に1秒の待機をしつつ、
+Got: hi
+Got: from
+Got: the
+Got: thread
+のように出力される。
+
+let (tx, rx) = mpsc::channel();
+
+let tx1 = mpsc::Sender::clone(&tx);
+thread::spawn(move || {
+    let vals = vec![
+        String::from("hi"),
+        String::from("from"),
+        String::from("the"),
+        String::from("thread"),
+    ];
+
+    for val in vals {
+        tx1.send(val).unwrap();
+        thread::sleep(Duration::from_secs(1));
+    }
+});
+
+thread::spawn(move || {
+    // 君のためにもっとメッセージを(more messages for you)
+    let vals = vec![
+        String::from("more"),
+        String::from("messages"),
+        String::from("for"),
+        String::from("you"),
+    ];
+
+    for val in vals {
+        tx.send(val).unwrap();
+        thread::sleep(Duration::from_secs(1));
+    }
+});
+
+for received in rx {
+    println!("Got: {}", received);
+}
+
+このように受け取り側を一つにし、たくさんの転送機から一つの受信機に送る形にも出来る。
+最初のスレッドを立ち上げる前にチャンネルの送信側に対してcloneを呼び出している。
+これにより、最初に立ち上げたスレッドに渡すことの出来る新しい送信ハンドルを得ることが出来る。
+
+Got: hi
+Got: more
+Got: from
+Got: messages
+Got: for
+Got: the
+Got: thread
+Got: you
+
+出力は例えばこの様になるが、スレッドの実行順序は保証されていないので、順番が入れ替わることも十分有り得る。
