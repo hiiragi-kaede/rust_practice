@@ -282,3 +282,148 @@ Got: thread
 Got: you
 
 出力は例えばこの様になるが、スレッドの実行順序は保証されていないので、順番が入れ替わることも十分有り得る。
+
+
+メッセージ受け渡しの他に平行性を扱う方法として、メモリを共有することでやり取りするものがある。
+
+ミューテックスはどんな時も一つのスレッドにしかデータへのアクセスを許可しないという、mutual exclusion(相互排他)の省略形。
+ミューテックスにあるデータにアクセスするには、まずミューテックスのロックを所望してアクセスしたいことをスレッドが通知する必要がある。
+ロックとは、現在誰がデータへの排他的アクセスを行っているかを追跡する、ミューテックスの一部をなすデータ構造。
+
+ミューテックスには2つの規則がある。
+・データは使用する前にロックの獲得を試みなければならない
+・ミューテックスが死守（guard）しているデータの使用が終わったら、他のスレッドがロックを獲得できるようにデータをアンロックしなければならない
+
+use std::sync::Mutex;
+
+fn main() {
+    let m = Mutex::new(5);
+
+    {
+        let mut num = m.lock().unwrap();
+        *num = 6;
+    }
+
+    println!("m = {:?}", m);
+}
+
+ミューテックスの使用例としてシングルスレッド文脈で使うとこの様になる。
+他の型と同様に、new関数を使用してMutex<T>を生成する。
+ミューテックス内部のデータにアクセスするにはlockメソッドを使用してロックを獲得する。
+この呼出は現在のスレッドをブロックするので、ロックを得られる順番が来るまで何も作業はできない。
+
+ロックを保持している他のスレッドがパニックしたら、lockの呼び出しが失敗するので、誰もロックを獲得できなくなる。
+この際はunwrapすると決定し、そのような状況下ではこのスレッドをパニックさせる。
+
+ロックを獲得した後、今回はnumという変数に格納されているが、戻り値を中に入っているデータへの可変参照として扱うことが出来る。
+型システムにより、mの値を使用する前にロックを獲得していることが確認される。
+Mutex<i32>はi32ではないので、i32を使用できるようにするにはロックを獲得しなければならない。
+
+Mutex<T>の実装はスマートポインタであり、lockの呼び出しによってMutexGuardというスマートポインタを返却する。
+このスマートポインタが内部のデータを指すDerefを実装している。さらに、MutexGuardがスコープを外れた際に、
+自動的にロックを解除するDropの実装もしているので、ロックの解除忘れによってミューテックスが他のスレッドで使用されるのを阻害するリスクを負わない。
+
+
+use std::sync::Mutex;
+use std::thread;
+
+fn main() {
+    let counter = Mutex::new(0);
+    let mut handles = vec![];
+
+    for _ in 0..10 {
+        let handle = thread::spawn(move || {
+            let mut num = counter.lock().unwrap();
+
+            *num += 1;
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("Result: {}", *counter.lock().unwrap());
+}
+
+Mutex<T>によって複数のスレッド間で値を共有している例が上のようになる。
+実際はこのコードではコンパイルエラーが起こるので少しずつ正しい書き方に訂正していく。
+
+まず、counterはクロージャにムーブされ、lockを呼び出したときにキャプチャされていると述べている。
+この動作は許可されていない。
+つまり、counterの所有権を複数のスレッドに移すことはできないと教えてくれている。
+
+スマートポインタのRc<T>を使用して参照カウントの値を作ることで、一つの値に複数の所有者を与えるようにしてみる。
+
+use std::rc::Rc;
+use std::sync::Mutex;
+use std::thread;
+
+fn main() {
+    let counter = Rc::new(Mutex::new(0));
+    let mut handles = vec![];
+
+    for _ in 0..10 {
+        let counter = Rc::clone(&counter);
+        let handle = thread::spawn(move || {
+            let mut num = counter.lock().unwrap();
+
+            *num += 1;
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("Result: {}", *counter.lock().unwrap());
+}
+
+Rc<T>にMutex<T>を包含し、所有権をスレッドに移す前にRc<T>をクローンする。
+
+次に出てくるコンパイルエラーは
+`std::rc::Rc<std::sync::Mutex<i32>>` cannot be sent between threads safely
+というもの。
+残念ながら、Rc<T>はスレッド間で共有するには安全でない。
+Rc<T>が参照カウントを管理する際、cloneが呼び出されるたびにカウントを増やし、クローンがドロップされる際にカウントを減らす。
+しかし、これはカウントの変更が別のスレッドに妨害されないことを確認していない。
+これは間違ったカウントに繋がる可能性があり、メモリリークや使用し終わる前に値がドロップされることにもつながってしまう。
+
+Arc<T>を使うことで、スレッドセーフにRc<T>のような使い方をすることが出来る。
+aはatomicを表し、原子的に参照カウントする型を意味する。
+詳細については標準ライブラリドキュメントで確認されたし。とりあえずは基本型のように動くけれどもスレッド間で共有しても安全なことだけわかっていれば良い。
+
+use std::sync::{Mutex, Arc};
+use std::thread;
+
+fn main() {
+    let counter = Arc::new(Mutex::new(0));
+    let mut handles = vec![];
+
+    for _ in 0..10 {
+        let counter = Arc::clone(&counter);
+        let handle = thread::spawn(move || {
+            let mut num = counter.lock().unwrap();
+
+            *num += 1;
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("Result: {}", *counter.lock().unwrap());
+}
+
+counterは不変なのに、その内部にある値への可変参照を得ることが出来る。
+Mutex<T>はCell系のように、内部可変性を提供する。
+RefCell<T>を使用してRc<T>の内容を可変化できるようにしたのと同様に、Mutex<T>を使用してArc<T>の内容を可変化している。
+
+Mutex<T>を使用する際にあらゆる種類のロジックエラーからはコンパイルエラーは保護してくれない。
+Rc<T>は循環参照を生成するリスクを伴い、メモリリークを引き起こす危険があることを思い出してほしい。
+同様にMutex<T>はデッドロックを生成するリスクを伴っている。
+これは処理が2つのリソースをロックする必要があり、2つのスレッドがそれぞれにロックを一つ獲得して永久にお互いを待ち合ってしまうときに起こる。
