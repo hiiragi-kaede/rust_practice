@@ -455,3 +455,159 @@ RefCell<T>が実行時に行う借用チェックの実装はスレッド安全�
 SendとSyncトレイトから構成される型は自動的にSendとSyncにもなるので、それらのトレイトを主導で実装する必要はない。
 マーカートレイトとして実装すべきメソッドさえなにもない。
 これらのトレイトを手動で実装するにはunsafeなRustコードを実装することが関わってくるので、非推奨より。
+
+
+OOPについて
+
+pub struct AveragedCollection {
+    list: Vec<i32>,
+    average: f64,
+}
+
+たとえばこのようにベクタの値の平均を含むフィールドを持てる。これにより計算した平均をキャッシュしてくれる。
+現状は構造体自体はpubだが、フィールドについては非公開のままなので、値が追加されたり削除されるたびに平均が更新されることを保証したい。
+そのためのメソッドを実装すると以下のようになる。
+
+impl AveragedCollection {
+    pub fn add(&mut self, value: i32) {
+        self.list.push(value);
+        self.update_average();
+    }
+
+    pub fn remove(&mut self) -> Option<i32> {
+        let result = self.list.pop();
+        match result {
+            Some(value) => {
+                self.update_average();
+                Some(value)
+            },
+            None => None,
+        }
+    }
+
+    pub fn average(&self) -> f64 {
+        self.average
+    }
+
+    fn update_average(&mut self) {
+        let total: i32 = self.list.iter().sum();
+        self.average = total as f64 / self.list.len() as f64;
+    }
+}
+
+例えばGUIツールを作ろうとしているときに、各オブジェクトはdrawメソッドを使用して描画処理を行うとする。
+この場合使用者はdrawメソッドをオーバーライドすることで各オブジェクトの異なる形を描画できるようにする。
+他言語の場合はdrawメソッドを持つComponentというクラスを定義し、それを継承してImageやButtonなどの他のクラスを作る。
+Rustには継承はないので、使用者に新しい型で拡張してもらうためには他の方法が必要。
+
+Rustではdrawという一つのメソッドを持つDrawというトレイトを定義し、それからトレイトオブジェクトを取るベクタを定義できる。
+トレイトオブジェクトは指定したトレイトを実装するある型のインスタンスを指す。
+Rustの型システムは、コンパイル時にその文脈で使用されているあらゆる値がそのトレイトオブジェクトのトレイトを実装していることを保証する。
+結果としてコンパイル時に可能性のある型全てを知る必要がなくなる。
+
+pub trait Draw {
+    fn draw(&self);
+}
+
+pub struct Screen {
+    pub components: Vec<Box<Draw>>,
+}
+
+impl Screen {
+    pub fn run(&self) {
+        for component in self.components.iter() {
+            component.draw();
+        }
+    }
+}
+
+このようにして、Screen構造体にcomponentsの各要素に対してdrawメソッドを呼び出すrunというメソッドを定義している。
+
+pub struct Screen<T: Draw> {
+    pub components: Vec<T>,
+}
+
+impl<T> Screen<T>
+    where T: Draw {
+    pub fn run(&self) {
+        for component in self.components.iter() {
+            component.draw();
+        }
+    }
+}
+
+この形でも抽象型には対応できたが、この場合は全ての要素がButtonだったりしなければならず、多様なオブジェクトを一つのScreenに持たせることができなくなってしまう。
+
+pub struct Button {
+    pub width: u32,
+    pub height: u32,
+    pub label: String,
+}
+
+impl Draw for Button {
+    fn draw(&self) {
+        // code to actually draw a button
+        // 実際にボタンを描画するコード
+    }
+}
+
+あくまで例なので実装まではしないが、Buttonにはこのような要素があってーというように作ることが出来る。
+
+extern crate gui;
+use gui::Draw;
+
+struct SelectBox {
+    width: u32,
+    height: u32,
+    options: Vec<String>,
+}
+
+impl Draw for SelectBox {
+    fn draw(&self) {
+        // code to actually draw a select box
+        //セレクトボックスを実際に描画するコード
+    }
+}
+
+use gui::{Screen, Button};
+
+fn main() {
+    let screen = Screen {
+        components: vec![
+            Box::new(SelectBox {
+                width: 75,
+                height: 10,
+                options: vec![
+                    // はい
+                    String::from("Yes"),
+                    // 多分
+                    String::from("Maybe"),
+                    // いいえ
+                    String::from("No")
+                ],
+            }),
+            Box::new(Button {
+                width: 50,
+                height: 10,
+                // 了解
+                label: String::from("OK"),
+            }),
+        ],
+    };
+
+    screen.run();
+}
+
+このように、drawメソッドをもつものだけのベクタを作って実行させたりもできる。
+トレイトオブジェクトの良いところとしては、実行時に値が特定のメソッドを実装しているか確認したり、
+値がメソッドを実装していないときに実行時エラーを起こす心配をしなくていいところ。
+コンパイラは、値がトレイトオブジェクトが必要としているトレイトを実装していなければコンパイラを通さないから。
+
+トレイトオブジェクトには、オブジェクト安全なトレイトしか作成できない。
+トレイトオブジェクトを安全にする特性には複雑な規則があるが、以下の2つが大きい。
+・戻り値の型がSelfでない
+・ジェネリックな型引数がない
+
+オブジェクト安全でないトレイトの例として標準ライブラリのCloneトレイトが挙げられる。
+cloneメソッドはSelfを返すのでだめ。
+cloneのシグニチャはSelfの代わりに入る方をしる必要がある。なぜならそれが戻り値の型になるから。
