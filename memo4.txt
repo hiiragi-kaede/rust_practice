@@ -611,3 +611,325 @@ fn main() {
 オブジェクト安全でないトレイトの例として標準ライブラリのCloneトレイトが挙げられる。
 cloneメソッドはSelfを返すのでだめ。
 cloneのシグニチャはSelfの代わりに入る方をしる必要がある。なぜならそれが戻り値の型になるから。
+
+ステートパターンはオブジェクト指向デザインパターンの一つ。
+このパターンの肝は値が一連のステートオブジェクトで表されるなんらかの内部状態を持ち、
+その内部の状態に基づいて値の振る舞いが変化するというもの。
+Rustではオブジェクトと継承ではなく、構造体とトレイトを使用して実装する。
+各ステートオブジェクトは、自身の振る舞いと別の状態に変化すべき時を司ることに責任を持つ。
+ステートオブジェクトを保持する値は状態ごとの異なる振る舞いや、いつ状態が移行するかについては何も知らない。
+例としてブログ記事を管理する。
+
+extern crate blog;
+use blog::Post;
+
+fn main() {
+    let mut post = Post::new();
+
+    // 今日はお昼にサラダを食べた
+    post.add_text("I ate a salad for lunch today");
+    assert_eq!("", post.content());
+
+    post.request_review();
+    assert_eq!("", post.content());
+
+    post.approve();
+    assert_eq!("I ate a salad for lunch today", post.content());
+}
+
+ユーザーがPost::newで新しいブログ記事の草稿を作成できるようにしたい。
+また、草稿状態では記事の内容を変更することが可能であり、承認前に記事の内容を得ることができないようにしたい。
+また、記事の査読も要求でき、査読を待機している間はcontentにからの文字列を返して欲しい。
+記事が承認を受けたときにはcontentを呼んだときに記事のテキストが返されるようにしたい。
+
+クレートから相互作用している唯一の型はPostだけであることに注意すべき。
+この型はステートパターンを使用し、記事がなりうる種々の状態を表す3つのステートオブジェクトのうちの一つになる値を保持する。
+草稿・査読待ち・公開中。一つの状態から他の状態への変更はPost型内部で管理される。
+Postインスタンスのライブラリ使用者が呼び出すメソッドに呼応して状態が変化するが、状態の変化を直接管理する必要はない。
+また、ユーザーは査読前に記事を公開するなど状態を間違えることはありえない。
+
+ここからライブラリの実装に入っていく。
+pub struct Post {
+    state: Option<Box<State>>,
+    content: String,
+}
+
+impl Post {
+    pub fn new() -> Post {
+        Post {
+            state: Some(Box::new(Draft {})),
+            content: String::new(),
+        }
+    }
+}
+
+trait State {}
+
+struct Draft {}
+
+impl State for Draft {}
+
+
+Stateトレイトは異なる記事の状態で共有される振る舞いを定義し、Draft、PendingReview、Published状態は全てSteateトレイトを実装する。
+今はトレイトにはメソッドは何もなく、Draftが記事の初期状態にしたい状態なので、その状態だけを定義することから始める。
+
+新しいPostを作るとき、stateフィールドはBoxを保持するSome値にセットする。
+このBoxがDraft構造体の新しいインスタンスを指す。これにより、新しいPostを作るたびに草稿から始まることが保証される。
+Postのstateフィールドは非公開なので、Postを他の状態で作成する方法はない。
+Post::new関数ではcontentフィールドを新しい空のStringにセットしている。
+
+impl Post {
+    // --snip--
+    pub fn add_text(&mut self, text: &str) {
+        self.content.push_str(text);
+    }
+}
+
+エスケープ処理とかを無視すれば単純なテキストの追加部分はこのような処理になる。
+add_textメソッドはselfへの可変参照を取る。これはPostインスタンスを変更しているため。
+このふるまいは記事の状態によらないので、ステートパターンの一部ではない。
+add_textメソッドはstateフィールドとは全く相互作用しないが、機能としてサポートするべき機能。
+
+impl Post {
+    // --snip--
+    pub fn request_review(&mut self) {
+        if let Some(s) = self.state.take() {
+            self.state = Some(s.request_review())
+        }
+    }
+}
+
+trait State {
+    fn request_review(self: Box<Self>) -> Box<State>;
+}
+
+struct Draft {}
+
+impl State for Draft {
+    fn request_review(self: Box<Self>) -> Box<State> {
+        Box::new(PendingReview {})
+    }
+}
+
+struct PendingReview {}
+
+impl State for PendingReview {
+    fn request_review(self: Box<Self>) -> Box<State> {
+        self
+    }
+}
+
+記事の査読を要求する機能を追加した。これをすると、状態がDraftからPendingReviewに変わるはず。
+Stateトレイトにrequest_reviewメソッドを追加したので、このトレイトを実装する型は全てこのメソッドを実装する必要がある。
+第一引数がselfなどではなく、self: Box<Self>としていることに注意してほしい。
+この記法は型を保持するBoxに対して呼ばれたときのみこのメソッドが合法になることを意味している。
+この記法はBox<Self>の所有権を奪い、古い状態を無効化するので、Postの状態値は新しい状態に変形できる。
+
+古い状態を消費するために、request_reviewメソッドは、状態値の所有権を奪う必要がある。 
+ここでPostのstateフィールドのOptionが問題になってくる。
+takeメソッドを呼び出して、 stateフィールドからSome値を取り出し、その箇所にNoneを残す。
+なぜなら、Rustは、 構造体に未代入のフィールドを持たせてくれないから。
+これにより、借用するのではなく、 Postのstate値をムーブすることができる。
+それから、記事のstate値をこの処理の結果にセットする。
+
+self.state = self.state.request_review();
+のようなコードで直接state値の所有権を得るように設定するのではなく、一時的にStateにNoneをセットする必要がある。
+これにより、新しい状態に変形した後にPostが古いstate値を使えないことが保証される。
+
+Draftのrequest_reviewメソッドは、新しいPendingReview構造体の新しいボックスのインスタンスを返す必要があり、これが記事が査読待ちの状態を表す。
+PendingReview構造体もrequest_reviewメソッドを実装するが、何も変形せずに自身を返す。
+なぜなら既に査読中のものを査読するならば査読状態に留まるのが正しい動きだから。
+
+state値が何であれ、Postのrequest_reviewメソッドは同じで、各状態は独自の規則にのみ責任を持つ。
+これがステートパターンの利点。
+
+
+impl Post {
+    // --snip--
+    pub fn approve(&mut self) {
+        if let Some(s) = self.state.take() {
+            self.state = Some(s.approve())
+        }
+    }
+}
+
+trait State {
+    fn request_review(self: Box<Self>) -> Box<State>;
+    fn approve(self: Box<Self>) -> Box<State>;
+}
+
+struct Draft {}
+
+impl State for Draft {
+    // --snip--
+    fn approve(self: Box<Self>) -> Box<State> {
+        self
+    }
+}
+
+struct PendingReview {}
+
+impl State for PendingReview {
+    // --snip--
+    fn approve(self: Box<Self>) -> Box<State> {
+        Box::new(Published {})
+    }
+}
+
+struct Published {}
+
+impl State for Published {
+    fn request_review(self: Box<Self>) -> Box<State> {
+        self
+    }
+
+    fn approve(self: Box<Self>) -> Box<State> {
+        self
+    }
+}
+
+Stateトレイトにapproveメソッドを追加し、Published状態というStateを実装する新しい構造体を追加する。
+request_reviewと同様に、Draftはapproveを呼び出してもselfを返すだけで何も効果がない。
+PendingReviewに対してapproveを呼び出すと、Published構造体の新しいボックス化されたインスタンスを返す。
+Publish構造体はStateトレイトを実装し、request_reviewとapproveの2つのメソッドに対して自身を返すように実装する。
+
+impl Post {
+    // --snip--
+    pub fn content(&self) -> &str {
+        self.state.as_ref().unwrap().content(&self)
+    }
+    // --snip--
+}
+
+Postのcontentを更新して、状態がPublishedなら記事のcontentフィールドの値を返すようにしたい。
+それ以外の場合は空の文字列スライスを返したい。
+
+この目的はこれらの規則全てをStateを実装する構造体の内部に押し留めることなので、stateの値に対してcontentメソッドを呼び出し、
+記事のインスタンスを引数として渡す。そして、state値のcontentメソッドを使用したことから、返ってきた値を返す。
+
+Optionに対してはas_refメソッドを呼び出す。値の所有権ではなく、Option内部の値への参照が欲しいから。
+この場合as_refで返ってくるのはOption<&Box<State>>
+as_refを呼ばなければ、stateを関数引数の借用した&selfからムーブできないのでエラーになる。
+
+Postのメソッドは完了した際にstateは常にSome値を含んでいることを保証するのでパニックはしないものの、unwrapメソッドを呼び出す必要がある。
+これはコンパイラが理解できない内容なのでしょうがない。
+
+&Box<State>に対してcontentを呼び出すと、参照外し型強制が&とBoxに働くので、contentメソッドがStateトレイトを実装する型に対して呼び出されることになる。
+つまり、contentをStateトレイト定義に追加する必要があり、そこが現在の状態に応じてどの内容を返すべきかというロジックを配置する。
+
+trait State {
+    // --snip--
+    fn content<'a>(&self, post: &'a Post) -> &'a str {
+        ""
+    }
+}
+
+// --snip--
+struct Published {}
+
+impl State for Published {
+    // --snip--
+    fn content<'a>(&self, post: &'a Post) -> &'a str {
+        &post.content
+    }
+}
+
+空の文字列スライスを返すデフォルト実装をcontentメソッドに追加している。
+これによりDraftとPendingReview構造体にcontentを実装する必要はない。
+Published構造体はcontentメソッドをオーバーライドし、post.contentの値を返す。
+
+postへの参照を引数として取り、そのpostの一部への参照を返しているので、返却される参照のライフタイム注釈を付ける必要があり、
+これはpost引数のライフタイムと一致することに注意。
+
+ステートパターンの良い点は新しいパターンが追加されたときに変更すべき部分が少なくて済むこと。
+既存のパターンに対する処理に手を付けなくても良い。
+これを採用しないといちいちmatch文でやらなければならなくなる。
+
+ステートパターンの欠点の一つは状態が状態間の遷移を実装しているので、状態の一部が密に結合した状態になってしまう。
+また、ロジックの一部を重複させてしまうこと。
+
+
+以下ではRustの強みを生かしてステートパターンを無視した実装を行っている。
+fn main() {
+    let mut post = Post::new();
+
+    post.add_text("I ate a salad for lunch today");
+    assert_eq!("", post.content());
+}
+
+pub struct Post {
+    content: String,
+}
+
+pub struct DraftPost {
+    content: String,
+}
+
+impl Post {
+    pub fn new() -> DraftPost {
+        DraftPost {
+            content: String::new(),
+        }
+    }
+
+    pub fn content(&self) -> &str {
+        &self.content
+    }
+}
+
+impl DraftPost {
+    pub fn add_text(&mut self, text: &str) {
+        self.content.push_str(text);
+    }
+}
+
+PostとDraftPost構造体どちらにもブログ記事のテキストを格納する非公開のcontentフィールドが存在する。
+Post::new関数はあるが、Postのインスタンスを返すのではなくDraftPostのインスタンスを返す。
+contentは非公開でPostを返す関数も存在しないので、Postのインスタンスを生成することは不可能。
+
+DraftPost構造体にはテキストをcontentに追加するためのadd_textメソッドがあるが、DraftPostにはcontentメソッドが定義されていないことに注意。
+先程は空文字列スライスを返していたが、今回は参照できないデータへのアクセスは全てコンパイルエラーで終わりに出来る。
+
+impl DraftPost {
+    // --snip--
+
+    pub fn request_review(self) -> PendingReviewPost {
+        PendingReviewPost {
+            content: self.content,
+        }
+    }
+}
+
+pub struct PendingReviewPost {
+    content: String,
+}
+
+impl PendingReviewPost {
+    pub fn approve(self) -> Post {
+        Post {
+            content: self.content,
+        }
+    }
+}
+
+DraftPostに対してrequest_reviewメソッドを呼び出すことでPendingReviewPostに変化し、
+PendingReviewPostに対してapproveメソッドを呼び出すことでPostに変化する。
+それぞれのメソッドはselfの所有権を奪うので、request_reviewメソッドを呼んだ後はDraftPostのインスタンスは生きながらえることができない。
+
+extern crate blog;
+use blog::Post;
+
+fn main() {
+    let mut post = Post::new();
+
+    post.add_text("I ate a salad for lunch today");
+
+    let post = post.request_review();
+
+    let post = post.approve();
+
+    assert_eq!("I ate a salad for lunch today", post.content());
+}
+
+最終的にmain文はこのように変更できる。assertするのは査読済の内容についてだけすればよくなる。
+Post実装内にカプセル化がされていないが、コンパイラがありえない遷移を防いでくれるために、プロダクションコードに移ってからバグが見つかることはない。
