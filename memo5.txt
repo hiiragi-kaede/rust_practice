@@ -1,0 +1,89 @@
+18,パターンとマッチングから
+
+match式はキーワードmatch、マッチ対象の値、パターンとそのアームパターンに値が合致したら実行される式からなる
+一つ以上のマッチアームとして定義される。
+
+match VALUE{
+    PATTERN => EXPRESSION,
+    PATTERN => EXPRESSION,
+    PATTERN => EXPRESSION,
+}
+
+match式の必須事項の一つはmatch式の値の可能性全てが考慮されなければならないという意味で網羅的である必要があるということ。
+全可能性をカバーしていると保証する一つの手段は、最後のアームに包括的なパターンを入れること。
+_という特定のパターンはなんにでもマッチするが、変数には束縛されない。
+_パターンは指定されていないあらゆる値を無視したいときに有能。
+
+fn main() {
+    let favorite_color: Option<&str> = None;
+    let is_tuesday = false;
+    let age: Result<u8, _> = "34".parse();
+
+    if let Some(color) = favorite_color {
+        // あなたのお気に入りの色、{}を背景色に使用します
+        println!("Using your favorite color, {}, as the background", color);
+    } else if is_tuesday {
+        // 火曜日は緑の日！
+        println!("Tuesday is green day!");
+    } else if let Ok(age) = age {
+        if age > 30 {
+            // 紫を背景色に使用します
+            println!("Using purple as the background color");
+        } else {
+            // オレンジを背景色に使用します
+            println!("Using orange as the background color");
+        }
+    } else {
+        // 青を背景色に使用します
+        println!("Using blue as the background color");
+    }
+}
+
+if letにはマッチしない場合に走るコードに対応するelseも用意できる。
+また、このときif letで使っている変数に関係なくてもelse if letで書くことができる。
+
+let Ok(age) = ageは、そのブロックにageという変数を導入するため、ブロック内でif age > 30が可能になっているが、
+if let Ok(age) = age && age > 30という書き方はできないことに注意。
+
+if let式を使うことの欠点は、コンパイラが網羅性を確認してくれないこと。とはいえelse節を付け加えるの忘れなければ済む話でもある。
+
+
+let mut stack = Vec::new();
+
+stack.push(1);
+stack.push(2);
+stack.push(3);
+
+while let Some(top) = stack.pop() {
+    println!("{}", top);
+}
+
+while let条件分岐ループは、パターンが合致し続ける限りwhileループを走らせる。
+上のコード例ではwhileループはpopがSomeを返す限りブロックのコードを実行し続ける。
+popがNoneを返すとループは停止する。
+
+
+let v = vec!['a', 'b', 'c'];
+
+for (index, value) in v.iter().enumerate() {
+    println!("{} is at index {}", value, index);
+}
+
+forループではパターンを使用してタプルを分配したり分解する事ができる。
+enumerateメソッドを使用してイテレータを改造し、値とその値のイテレータでの添字をタプルに配置して生成している。
+
+let文はlet PATTERN=EXPRESSION;
+が実際の動きであるため、マッチしたものをイコールの右側のものと結びつける動きをしている。
+これを利用すると、関数の引数でもパターンを活用できる。
+
+fn print_coordinates(&(x, y): &(i32, i32)) {
+    // 現在の位置: ({}, {})
+    println!("Current location: ({}, {})", x, y);
+}
+
+fn main() {
+    let point = (3, 5);
+    print_coordinates(&point);
+}
+
+値&(3,5)はパターン&(x,y)と合致するので、x=3、y=5になる。
