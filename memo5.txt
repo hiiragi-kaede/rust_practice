@@ -124,3 +124,191 @@ if let x = 5 {
 論駁可能なパターンを使用しなければならない。
 コンパイラはたった一つしかアームのないmatchで論駁不可能なパターンを使用させてくれるが、この記法は特に使えるわけでもないので、
 より単純なlet文に置き換えるべき。
+
+
+パターン記法を改めてまとめ直す。
+
+・リテラルにマッチさせる。多言語におけるswitch文的な使い方。
+let x = 1;
+
+match x {
+    1 => println!("one"),       // 1
+    2 => println!("two"),       // 2
+    3 => println!("three"),     // 3
+    _ => println!("anything"),  // なんでも
+}
+
+・名前付き変数にマッチする。
+これはどんな値にも合致する論駁不可能なパターンである。しかし、名前付き変数をmatch式で使うと、厄介な問題がある。
+matchは新しいスコープを開始するので、match式内のパターンの一部として宣言された変数は、他の変数と同様にmatch構文外部の同名の変数を覆い隠す。
+
+fn main() {
+    let x = Some(5);
+    let y = 10;
+
+    match x {
+        // 50だったよ
+        Some(50) => println!("Got 50"),
+        // マッチしたよ
+        Some(y) => println!("Matched, y = {:?}", y),
+        // 既定のケース
+        _ => println!("Default case, x = {:?}", x),
+    }
+
+    // 最後にはx = {}, y = {}
+    println!("at the end: x = {:?}, y = {:?}", x, y);
+}
+
+このコードの出力は
+Matched, y = 5
+at the end: x = Some(5), y = 10
+になる。
+
+最初のマッチアームのパターンはSome(5)!=Some(50)より継続される。
+2つ目のマッチアームのパターンはSome値内部のあらゆる値に合致する新しいyという変数を導入する。
+この新しいy束縛はSome内のあらゆる値に合致し、xの型と一致する。
+この新しいyはxの中身の値に束縛される。その値は5なので、そのアームの式が実行され、Matched,y=5と表示される。
+
+例えばxがSome(5)でなくNone値なら、最初の2つのアームのパターンとはマッチせず、値はアンダースコアに合致する。
+アンダースコアのアームのパターンではx変数を導入しなかったので、このxはシャドーイングされずに外側のxのままで、表示はx=Noneとなる。
+matchのスコープを抜けると中のyのスコープも抜けるので、最後の出力はy=10に戻る。
+
+シャドーイングされた変数を導入するのではなく外側のxとyの値を比較するmatch式を生成するには、代わりにマッチガード条件式を使用する必要がある。
+マッチガードについてはまた後で説明する。
+
+・複数のパターン
+match式で|記法を使って複数のパターンに合致させることができ、これはorを意味する。
+
+let x = 1;
+
+match x {
+    // 1か2
+    1 | 2 => println!("one or two"),
+    // 3
+    3 => println!("three"),
+    // なんでも
+    _ => println!("anything"),
+}
+
+
+・...記法を使って値の範囲に合致させる。
+要するに1~6のどれか、みたいなことが出来る。
+
+let x = 5;
+
+match x {
+    // 1から5まで
+    1 ... 5 => println!("one through five"),
+    // それ以外
+    _ => println!("something else"),
+}
+
+この範囲は数値かchar値でのみ許可される。
+これはコンパイラがコンパイル時に範囲が空でないことを確認しているから。
+範囲が空かそうでないかコンパイラが判断できる限られた型はcharと数値。
+
+let x = 'c';
+
+match x {
+    // ASCII文字前半
+    'a' ... 'j' => println!("early ASCII letter"),
+    // ASCII文字後半
+    'k' ... 'z' => println!("late ASCII letter"),
+    // それ以外
+    _ => println!("something else"),
+}
+
+・構造体を分配する
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() {
+    let p = Point { x: 0, y: 7 };
+
+    let Point { x: a, y: b } = p;
+    assert_eq!(0, a);
+    assert_eq!(7, b);
+}
+
+このコードは、p変数のxとyフィールドの値に合致する変数aとbを生成する。
+この例ではパターンの変数の名前は構造体のフィールド名と合致する必要がないことを示している。
+とはいえ、変数名とフィールド名を一致させてどの変数がどのフィールド由来のものなのか覚えやすくすることも多い。
+
+変数名をフィールドに一致させることは一般的なので、この書き方を省略できる。
+構造体のフィールド名を列挙するだけで、パターンから生成される変数は同じ名前になる。
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn main() {
+    let p = Point { x: 0, y: 7 };
+
+    let Point { x, y } = p;
+    assert_eq!(0, x);
+    assert_eq!(7, y);
+}
+
+このコードではp変数のxとyフィールドに一致する変数xとyを生成する。
+
+また、全フィールドに対して変数を生成するのではなく、リテラル値を構造体パターンの一部にして分配するkと主出来る。
+そうすることで、他のフィールドは分配して変数を生成しつつ、一部のフィールドは特定の値と一致するか確認できる。
+
+fn main() {
+    let p = Point { x: 0, y: 7 };
+
+    match p {
+        // x軸上の{}
+        Point { x, y: 0 } => println!("On the x axis at {}", x),
+        // y軸上の{}
+        Point { x: 0, y } => println!("On the y axis at {}", y),
+        // どちらの軸上でもない: ({}, {})
+        Point { x, y } => println!("On neither axis: ({}, {})", x, y),
+    }
+}
+
+・enumを分配する
+
+num Message {
+    Quit,
+    Move { x: i32, y: i32 },
+    Write(String),
+    ChangeColor(i32, i32, i32),
+}
+
+fn main() {
+    let msg = Message::ChangeColor(0, 160, 255);
+
+    match msg {
+        Message::Quit => {
+            // Quit列挙子には分配すべきデータがない
+            println!("The Quit variant has no data to destructure.")
+        },
+        Message::Move { x, y } => {
+            println!(
+                // x方向に{}、y方向に{}だけ動く
+                "Move in the x direction {} and in the y direction {}",
+                x,
+                y
+            );
+        }
+        // テキストメッセージ: {}
+        Message::Write(text) => println!("Text message: {}", text),
+        Message::ChangeColor(r, g, b) => {
+            println!(
+                // 色を赤{}, 緑{}, 青{}に変更
+                "Change the color to red {}, green {}, and blue {}",
+                r,
+                g,
+                b
+            )
+        }
+    }
+}
+
+使うだろうしわかりやすいだろうのはこれ。
+enumを分配するパターンは、enum内に格納されているデータが定義されている手段に対応すべき。
+
