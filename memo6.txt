@@ -230,3 +230,106 @@ fn main() {
 関数やメソッドを呼び出す箇所全部でフルパス記法を使用することも出来るだろうが、プログラムの他の情報からコンパイラが推論できる
 この記法のどの部分も省略することが許容されている。同じ名前を使用する実装が複数あり、どの実装を呼び出したいのかコンパイラが特定する際に
 助けが必要な場合だけにこの冗長な記法を使用する必要がある。
+
+
+・スーパートレイトを使用して別のトレイト内であるトレイトの機能を必要とする
+時としてあるトレイトに別のトレイトの機能を使用させる必要がある可能性がある。
+このとき、依存するトレイトも実装されることを信用する必要がある。
+信用するトレイトは実装しているトレイトのスーパートレイトになる。
+
+例えばアスタリスクをフレームに値を出力するoutline_printメソッドがあるOutlinePrintトレイトを作りたくなったとする。
+この場合Displayを実装し(x,y)という結果になるPoint構造体が与えられ、(1,3)のPointインスタンスに対して、outline_printを呼び出すと以下のような出力になる。
+
+**********
+*        *
+* (1, 3) *
+*        *
+**********
+
+outline_printの実装ではDisplayトレイトの機能を使用したいために、Displayも実装する型に対してだけOutlinePrintが動くと指定し、
+OutlinePrintが必要とする機能を提供する必要がある。トレイト定義でOutlinePrint: Displayと指定することによってそのようにできる。
+このテクニックはトレイトにトレイト境界を追加することに似ている。
+
+use std::fmt;
+
+trait OutlinePrint: fmt::Display {
+    fn outline_print(&self) {
+        let output = self.to_string();
+        let len = output.len();
+        println!("{}", "*".repeat(len + 4));
+        println!("*{}*", " ".repeat(len + 2));
+        println!("* {} *", output);
+        println!("*{}*", " ".repeat(len + 2));
+        println!("{}", "*".repeat(len + 4));
+    }
+}
+
+OutlinePrintはDisplayトレイトを必要とすると指定したので、Displayを実装するどんな型にも自動的に実装されるto_string関数を利用できる。
+トレイト名の後にコロンとDisplayトレイトを追加せずにto_stringを使おうとしたら、現在のスコープで型&Selfにto_stringというメソッドが存在しないというエラーが出る。
+
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+impl OutlinePrint for Point {}
+
+例えばこのようにDisplayを実装しないPoint構造体にOutlinePrintを実装しようとすると以下のようなエラーが出る。
+
+error[E0277]: the trait bound `Point: std::fmt::Display` is not satisfied
+  --> src/main.rs:20:6
+   |
+20 | impl OutlinePrint for Point {}
+   |      ^^^^^^^^^^^^ `Point` cannot be formatted with the default formatter;
+try using `:?` instead if you are using a format string
+   |
+   = help: the trait `std::fmt::Display` is not implemented for `Point`
+
+
+解決のためにPointにDisplayを実装することによって、エラーを消すことが出来る。
+use std::fmt;
+
+impl fmt::Display for Point {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "({}, {})", self.x, self.y)
+    }
+}
+
+
+・ニュータイプパターンを使用して外部の型に外部のトレイトを実装する
+トレイトか型がクレートにローカルな限り、型にトレイトを実装できると以前に述べた。
+ニュータイプパターンを使用してこの制限を回避することができ、タプル構造体に新しい型を作成することになる。
+タプル構造体は1つのフィールドを持ち、トレイトを実装したい型の薄いラッパになる。
+そしてラッパの型はクレートにローカルなのでトレイトをラッパに実装できる。
+
+このニュータイプという用語はHaskellプログラミング言語に端を発している。
+このパターンを使用するのに実行時のパフォーマンスの犠牲を払う必要はなく、ラッパ型はコンパイル時に省かれる。
+
+例としてVec<T>にDisplayを実装したいとする。DisplayトレイトもVec<T>型もクレートの外で定義されているので、
+直接それを行うことはオーファンルールにより妨げられる。
+Vec<T>のインスタンスを保持するWrapper構造体を作成でき、WrapperにDisplayを実装することにより問題を解決できる。
+
+
+use std::fmt;
+
+struct Wrapper(Vec<String>);
+
+impl fmt::Display for Wrapper {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[{}]", self.0.join(", "))
+    }
+}
+
+fn main() {
+    let w = Wrapper(vec![String::from("hello"), String::from("world")]);
+    println!("w = {}", w);
+}
+
+
+Displayの実装はself.0で中身のVec<T>にアクセスしている。Wrapperはタプル構造体で、
+Vec<T>がタプルの添字0の要素だから。それからWrapperに対してDisplay型の機能を使用できる。
+
+このテクニックを使用する欠点はWrapperが新しい型なので、保持している値のメソッドがないこと。self.0に移譲して、
+WrapperをVec<T>と全く同様に扱えるようにWrapperに直接Vec<T>の全てのメソッドを実装しなければならない。
+内部の型が持つ全てのメソッドを新しい型に持たせたいのなら、DerefトレイトをWrapperに実装して、内部の値を返すことが解決策の1つとして挙げられる。
+内部の型のメソッド全部をWrapper型に持たせたくないのなら、本当に欲しいメソッドだけを手動で実装しなければならなくなる。
