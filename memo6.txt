@@ -121,3 +121,112 @@ Addトレイト定義でデフォルト型引数を使用することは、殆�
 
 最初の目的は２つ目に似ているが、逆のことを意味している。
 既存のトレイトに型引数を追加したいなら、既定を与えて既存の実装コードを破壊せずにトレイトの機能を拡張できる。
+
+
+Rustにおいて、別のトレイトのメソッドと同じ名前のメソッドがトレイトにあったり、両方のトレイトを1つの型に実装することを妨げる機能はなにもない。
+トレイトのメソッドと同じ名前のメソッドを直接型に実装することも可能。
+
+同じ名前のメソッドを呼ぶ際、コンパイラにどれを使用したいのか教える必要がある。
+両方ともflyというメソッドがある2つのトレイト、PilotとWizardを定義した以下のコードを例に上げる。
+
+trait Pilot {
+    fn fly(&self);
+}
+
+trait Wizard {
+    fn fly(&self);
+}
+
+struct Human;
+
+impl Pilot for Human {
+    fn fly(&self) {
+        // キャプテンのお言葉
+        println!("This is your captain speaking.");
+    }
+}
+
+impl Wizard for Human {
+    fn fly(&self) {
+        // 上がれ！
+        println!("Up!");
+    }
+}
+
+impl Human {
+    fn fly(&self) {
+        // *激しく腕を振る*
+        println!("*waving arms furiously*");
+    }
+}
+
+
+fn main() {
+    let person = Human;
+    person.fly();
+}
+この場合、Humanのインスタンスに対してflyの呼び出しを行うとコンパイラは型に直接実装されたメソッドを標準で呼び出す。
+この実行結果は"waving arms"になる。
+
+fn main() {
+    let person = Human;
+    Pilot::fly(&person);
+    Wizard::fly(&person);
+    person.fly();
+}
+その他のトレイトのメソッドを呼び出すためにはより明示的な記法を使用して、どのflyメソッドを意図しているか指定する必要がある。
+
+flyメソッドはself引数を取るので、1つのトレイトを両方実装する型が2つあれば、コンパイラにはselfの型に基づいてどのトレイトの実装を使うべきかわかる。
+しかし、トレイトの一部になる関連関数にはself引数がない。
+同じスコープの2つの型がそのトレイトを実装する場合、フルパス記法を使用しない限りどの型を意図しているかコンパイラは推論できない。
+下の例ではAnimalトレイトには、関連関数baby_name、構造体DogのAnimalの実装、Dogに直接定義された関連関数baby_nameがある。
+
+trait Animal {
+    fn baby_name() -> String;
+}
+
+struct Dog;
+
+impl Dog {
+    fn baby_name() -> String {
+        // スポット(Wikipediaによると、飼い主の事故死後もその人の帰りを待つ忠犬の名前の模様)
+        String::from("Spot")
+    }
+}
+
+impl Animal for Dog {
+    fn baby_name() -> String {
+        // 子犬
+        String::from("puppy")
+    }
+}
+
+fn main() {
+    // 赤ちゃん犬は{}と呼ばれる
+    println!("A baby dog is called a {}", Dog::baby_name());
+}
+
+このコードでは出力は"A baby dog is called a Spot"と出力される。これはDogでの実装。
+実際はAnimalのDogへの実装を使用したい。
+
+fn main() {
+    println!("A baby dog is called a {}", Animal::baby_name());
+}
+
+だからといってこのように修正すると、Animal::baby_nameはメソッドではなく関連関数であり、self引数が無いので、
+どのAnimal::baby_nameがほしいのかコンパイラには推論できず、コンパイルエラーが出る。
+
+fn main() {
+    println!("A baby dog is called a {}", <Dog as Animal>::baby_name());
+}
+
+フルパス記法で書くことによりこの問題を解決することができ、それは上のコードのようになる。
+この出力は"A baby dog is called a puppy"にきちんとなってくれる。
+
+一般的にフルパス記法は以下のように定義されている。
+<Type as Trait>::function(receiver_if_method, next_arg, ...);
+
+関連関数ではreceiverがなく、他の引数のリストがあるだけ。
+関数やメソッドを呼び出す箇所全部でフルパス記法を使用することも出来るだろうが、プログラムの他の情報からコンパイラが推論できる
+この記法のどの部分も省略することが許容されている。同じ名前を使用する実装が複数あり、どの実装を呼び出したいのかコンパイラが特定する際に
+助けが必要な場合だけにこの冗長な記法を使用する必要がある。
