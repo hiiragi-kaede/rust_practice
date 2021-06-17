@@ -333,3 +333,79 @@ Vec<T>がタプルの添字0の要素だから。それからWrapperに対して
 WrapperをVec<T>と全く同様に扱えるようにWrapperに直接Vec<T>の全てのメソッドを実装しなければならない。
 内部の型が持つ全てのメソッドを新しい型に持たせたいのなら、DerefトレイトをWrapperに実装して、内部の値を返すことが解決策の1つとして挙げられる。
 内部の型のメソッド全部をWrapper型に持たせたくないのなら、本当に欲しいメソッドだけを手動で実装しなければならなくなる。
+
+
+以前に述べた以外のニュータイプパターンの有用な点として、静的に絶対に値を混同しないことを強制したり、値の単位を示すことを含む。
+以前に挙げた例ではMilimetersとMeters構造体はu32値をニュータイプにラップしていた。
+型Milimetersを引数にする関数を書いたとき、その関数の引数として型Metersやu32を渡そうとするとコンパイルエラーが起こる。
+
+型の実装の詳細を抽象化する際にニュータイプパターンを使用する。
+例えば新しい型を直接使用して、利用可能な機能を制限すると、非公開の内部の型のAPIとは異なる公開APIを新しい型は露出できる。
+
+ニュータイプは内部の実装を隠匿することも出来る。例を上げれば、People型を提供して、
+人のIDと名前を紐付けて格納するHashMap<i32,String>をラップすることが出来る。
+Peopleを使用するコードは名前の文字列をPeopleコレクションに追加するメソッドなど、提供している公開APIとだけ相互作用する。
+そのコードは内部でi32値をIDとして使用して名前を代入していることを知る必要はない。
+ニュータイプパターンはカプセル化を実現して実装の詳細を隠匿する軽い方法。
+
+ニュータイプパターンに付随して、Rustでは既存の型に別の名前を与える型エイリアスを宣言する機能がある。
+このためにtypeキーワードを使用する。
+
+type Kilometers = i32
+
+これで別名のKilometersはi32と同義語になった。先程定義したMilimetersやMetersとは異なり、
+Kilometersは個別の新しい型ではない。
+型Kilometersの値は型i32の値と同等に扱われる。
+
+type Kilometers = i32;
+
+let x: i32 = 5;
+let y: Kilometers = 5;
+
+println!("x + y = {}", x + y);
+
+
+Kilometersとi32は同じ型なので、両方の型の値を足し合わせたり、Kilometersの値をi32を引数に取る関数に渡すことが出来る。
+
+型同義語の主な使いみちは繰り返しを減らすこと。
+長ったらしい型を関数シグニチャや型注釈としてコードに記述するのは面倒で間違いが起きやすい。
+
+type Thunk = Box<Fn() + Send + 'static>;
+
+let f: Thunk = Box::new(|| println!("hi"));
+
+fn takes_long_type(f: Thunk) {
+    // --snip--
+}
+
+fn returns_long_type() -> Thunk {
+    // --snip--
+}
+
+このように冗長な型の記述を減らし、短い別名で置き換えて使えることが出来る。
+
+std::ioはResult<T,E>を返して処理がうまく動かなかった時を扱う。
+そのためstd::ioには以下のようなエイリアス宣言がある。
+type Result<T> = Result<T, std::io::Error>;
+
+
+use std::io::Error;
+use std::fmt;
+
+pub trait Write {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Error>;
+    fn flush(&mut self) -> Result<(), Error>;
+
+    fn write_all(&mut self, buf: &[u8]) -> Result<(), Error>;
+    fn write_fmt(&mut self, fmt: fmt::Arguments) -> Result<(), Error>;
+}
+
+これらを以下のように変えることが出来る。
+
+pub trait Write {
+    fn write(&mut self, buf: &[u8]) -> Result<usize>;
+    fn flush(&mut self) -> Result<()>;
+
+    fn write_all(&mut self, buf: &[u8]) -> Result<()>;
+    fn write_fmt(&mut self, fmt: Arguments) -> Result<()>;
+}
