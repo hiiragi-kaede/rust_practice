@@ -409,3 +409,58 @@ pub trait Write {
     fn write_all(&mut self, buf: &[u8]) -> Result<()>;
     fn write_fmt(&mut self, fmt: Arguments) -> Result<()>;
 }
+
+
+Rustには!という名前の特別な型がある。型理論の専門用語ではEmpty型と呼ばれる値なしの型を表す。
+関数が値を返さないときに戻り値の型を記す場所に使われるので、never型と呼ばれる。
+
+fn bar() -> ! {
+    // --snip--
+}
+
+こんな感じ。要するにCでのvoid型かな？
+このコードは関数barはneverを返すと解読される。
+neverを返す関数は発散する関数と呼ばれる。型！の値は生成できないので、barからリターンすることは決してできない。
+
+let guess = match guess.trim().parse() {
+    Ok(_) => 5,
+    Err(_) => "hello",
+}
+
+例えばmatchアームは全て同じ型を返さなければならないため、上のコードはコンパイルエラーになる。
+このコードのguessは整数かつ文字列にならなければならないが、guessは1つの型にしかならないことを要求される。
+
+しかしながら、以前にこのようなコードは使えていた。
+let guess: u32 = match guess.trim().parse() {
+    Ok(num) => num,
+    Err(_) => continue,
+};
+
+continueは！値であり、コンパイラがguessの型を計算するときに考慮しなくなる。
+両方のmatchアームをみて、前者はu32の値、後者は!値であると判断される。
+!は絶対に値を持ちえないので、コンパイラはguessの型をu32に決定する。
+
+never型はpanic!マクロとも有用。Option<T>値に対して呼び出して、値がパニックを生成したunwrap関数は以下のように定義されている。
+impl<T> Option<T> {
+    pub fn unwrap(self) -> T {
+        match self {
+            Some(val) => val,
+            None => panic!("called `Option::unwrap()` on a `None` value"),
+        }
+    }
+}
+
+このコードにおいて、valの型はTで、panic!の型は!なので、match式全体の結果はTだと判断される。
+panic!は値を生成しないのでこのコードは動く。つまりはプログラムが終了されるということだが。
+Noneの場合、unwrapから値は返さないので、このコードは合法になる。
+
+型が！である最後の式はloop。
+// 永遠に
+print!("forever ");
+
+loop {
+    // さらに永遠に
+    print!("and ever ");
+}
+
+ここでループは終わらないので!が式の値になっている。ところがbreakを含んでいたら、breakに到達した際にループが終了してしまうので!にはならなくなる。
