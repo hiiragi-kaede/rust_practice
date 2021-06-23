@@ -684,3 +684,222 @@ macro_rules!にはいくつかの奇妙なコーナーケースが有り、将�
 大抵のRustプログラマーはマクロを書くよりも使うことが多いので、詳しい説明は省略。
 
 
+2つ目のマクロの形は手続き的マクロと呼ばれ、より関数のように働く。
+宣言的マクロがパターンマッチングを行い、マッチしたコードを他のコードで置き換えていたのとは違い、
+手続き的マクロはコードを入力として受け取り、そのコードに対して作用し、出力としてコードを生成する。
+手続き的マクロを作る際はその定義はそれ専用の特殊なクレート内に置かれる必要がある。
+
+use proc_macro;
+
+#[some_attribute]
+pub fn some_name(input: TokenStream) -> TokenStream {
+}
+
+手続き的マクロを定義する関数はTokenStreamを入力として受け取り、TokenStreamを出力として生成する。
+TokenStream型はRustに内蔵されているproc_macroクレートで定義されており、トークンの列を表す。
+マクロが作用するソースコードは入力のTokenStreamへと変換され、マクロが生成するコードが出力のTokenStreamになっている。
+この関数には属性も付けられているが、これはどの種類の手続き的マクロを作っているのかを指定する。
+同じクレート内に複数の種類の手続き的マクロを持つことも可能。
+
+
+ここでは例としてhello_macroという名前のクレートを作成していく。
+このクレートではhello_macroという関連関数が1つあるHelloMacroというトレイトを定義する。
+クレートの使用者に使用者の型にHelloMacroトレイトを実装することを強制するのではなく、
+使用者が型を#[derive(HelloMacro)]で注釈してhello_macro関数の既定の実装を得られるように、手続き的マクロを提供する。
+
+use hello_macro::HelloMacro;
+use hello_macro_derive::HelloMacro;
+
+#[derive(HelloMacro)]
+struct Pancakes;
+
+fn main() {
+    Pancakes::hello_macro();
+}
+
+既定の実装では"Hello, Macro! My name is TypeName!"と出力し、ここでいうTypeNameはこのトレイトが定義されている型の名前になっている。
+上のコードではTypeNameはPancakeとして出力される。
+
+pub trait HelloMacro {
+    fn hello_macro();
+}
+
+HelloMacroトレイトと関連関数を定義し、
+
+use hello_macro::HelloMacro;
+
+struct Pancakes;
+
+impl HelloMacro for Pancakes {
+    fn hello_macro() {
+        println!("Hello, Macro! My name is Pancakes!");
+    }
+}
+
+fn main() {
+    Pancakes::hello_macro();
+}
+
+この時点でクレートの使用者は上のようにトレイトを実装して機能を使うことが出来る。
+
+しかしながら使用者はhello_macroを使用したい型それぞれに実装ブロックを記述する必要があり、この作業をしなくてもすむようにしたい。
+また、hello_macro関数にトレイトが実装されている型の名前を出力する既定の実装を提供することはできない。
+Rustにはリフレクションの能力がないため、型の名前を実行時に検索することができない。
+コンパイル時にコード生成するマクロが必要。
+
+次の手順としては手続き的マクロを定義すること。手続き的マクロは独自のクレートに存在する必要があるが、将来的にこの制限が無くなる可能性がある。
+クレートとマクロクレートを構成する慣習は以下の通りになっている。
+fooというクレートに対してカスタムのderive手続き的マクロクレートはfoo_deriveと呼ばれる。
+
+こういった場合2つのクレートが緊密に関係しているので、hello_macroクレートのディレクトリ内に手続き的マクロクレートを作成する。
+hello_macroのトレイト定義を変更したら、hello_macro_deriveの手続き的マクロの実装も変更しなければならないため。
+2つのクレートは個別に公開される必要があり、これらのクレートを使用するプログラマは両方を依存に追加し、
+スコープに導入する必要がある。hello_macroクレートに依存としてhello_macro_deriveを使用させ、
+手続き的マクロのコードを再エクスポートすることもできるかもしれないが、プログラマがderive機能を使用したくなくても、
+hello_macroを使用することが可能になるため、このようなプロジェクトの構造にしたほうがよい。
+
+hello_macro_deriveクレートを手続き的マクロクレートとして宣言する必要があり、またすぐにわかるように、
+synとquoteクレートの機能も必要になるので、依存として追加する必要がある。
+そのため、以下をCargo.tomlに追加する。
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = "1.0"
+quote = "1.0"
+
+
+手続き的マクロの定義を開始するために、hello_macro_deriveクレートのsrc/lib.rsファイルに以下のコードを追加する。
+impl_hello_macro関数の定義を追加するまでコンパイルができないことに注意。
+
+extern crate proc_macro;
+
+use proc_macro::TokenStream;
+use quote::quote;
+use syn;
+
+#[proc_macro_derive(HelloMacro)]
+pub fn hello_macro_derive(input: TokenStream) -> TokenStream {
+    // 操作可能な構文木としてのRustコードの表現を構築する
+    // Construct a representation of Rust code as a syntax tree
+    // that we can manipulate
+    let ast = syn::parse(input).unwrap();
+
+    // トレイトの実装内容を構築
+    // Build the trait implementation
+    impl_hello_macro(&ast)
+}
+
+TokenStreamをパースする役割を持つhello_macro_derive関数と、構文木を変換する役割を持つimpl_hello_macro関数にコードを分割したことに注目。
+これにより手続き的マクロを書くのがより簡単になる。外側の関数のコードは、
+普段使うであろうほとんどの手続き的マクロのクレートで同じ。
+内部の関数（今回だとimpl_hello_macro）の内部に書き込まれるコードは手続き的マクロの目的によって異なってくる。
+
+proc_macroクレートはRustに付随してくるので、Cargo.tomlの依存に追加する必要はない。
+proc_macroクレートはコンパイラのAPIで、自分たちのコードからRustのコードを読んだり操作したりすることを可能にする。
+
+synクレートは文字列からRustコードを構文解析し、処理を行えるデータ構造にする。
+quoteクレートはsynデータ構造を取り、Rustコードに変換し直す。
+これらのクレートにより、扱いたい可能性のあるあらゆる種類のRustコードを構文解析するのが遥かに単純になる。
+Rustコードの完全なパーサを書くのは普通に出来るようなものではない。
+
+hello_macro_derive関数はライブラリの使用者が型に#[derive(HelloMacro)]を指定したときに呼び出される。
+それが可能な理由としてはここでhello_macro_derive関数をproc_macro_deriveで注釈し。
+トレイト名に一致するHelloMacroを指定したため。これはほとんどの手続き的マクロが習う慣習。
+
+この関数はまずTokenStreamからinputをデータ構造に変換し、解釈したり操作したり出来るようにする。
+ここでsynが登場する。synのparse関数はTokenStreamを受け取り、パースされたRustのコードを表現するDeriveInput構造体を返す。
+
+以下のコードではstruct Pancakes;という文字列をパースすることで得られるDeriveInput構造体の関係ある部分を表している。
+
+DeriveInput {
+    // --snip--
+
+    ident: Ident {
+        ident: "Pancakes",
+        span: #0 bytes(95..103)
+    },
+    data: Struct(
+        DataStruct {
+            struct_token: Struct,
+            fields: Unit,
+            semi_token: Some(
+                Semi
+            )
+        }
+    )
+}
+
+
+この構造体のフィールドは、構文解析したRustコードがPancakesというindent（識別子、つまり名前）のユニット構造体であることを示している。
+この構造体にはRustコードのあらゆる部分を記述するフィールドがもっとあるので、https://docs.rs/syn/1.0/syn/struct.DeriveInput.html
+で詳細を確認されたし。
+
+impl_hello_macro関数を定義し、そこにインクルードしたい新しいRustコードを構築する。
+ただ、deriveマクロのための出力もまたTokenStreamであることに注目すべき。
+返されたTokenStreamをクレートの使用者が書いたコードに追加しているので、クレートをコンパイルすると、
+自分たちが修正したTokenStreamで提供している追加の機能を得ることが出来る。
+
+ここでunwrapを使用しているのでsyn::parse関数が失敗したときにhello_macro_derive関数をパニックさせている。
+エラー時にパニックするのは手続き的マクロコードでは必要なこと。なぜならproc_macro_derive関数は、
+手続き的マクロのAPIに従うために、ResultではなくTokenStreamを返さなければならないため。
+以下の例ではunwrapを使用して簡略化しているが、プロダクションコードではpanic!かexpectを使用して何が間違っていたのかより具体的なエラーメッセージを提供すべき。
+
+fn impl_hello_macro(ast: &syn::DeriveInput) -> TokenStream {
+    let name = &ast.ident;
+    let gen = quote! {
+        impl HelloMacro for #name {
+            fn hello_macro() {
+                println!("Hello, Macro! My name is {}!", stringify!(#name));
+            }
+        }
+    };
+    gen.into()
+}
+
+これによってTokenStreamからの注釈されたRustコードをDeriveInputインスタンスに変換するコードができたので、
+注釈された型にHelloMacroトレイトを実装するコードを生成できた。
+
+ast.indentを使って注釈された型の名前を含むIdent構造体インスタンスを得ている。
+上のコードを実行したときにはidentはフィールドidentの値として"Pancakes"を持つ。
+よって、変数nameは構造体Identのインスタンスを持つ。このインスタンスはprintされたときは文字列"Pancakes"を表示する。
+
+quote!マクロを使うことで、自分たちが返したRustコードを定義することが出来る。
+ただ、コンパイラが期待しているものはquote!マクロの実行結果とは違うものなので、TokenStreamに変換してあげる必要がある。
+マクロの出力する直接表現を受け取り、必要とされるTokenStream型の値を返すintoメソッドを呼ぶことでこれを行っている。
+
+このマクロはテンプレート機構も提供してくれ、#nameとかくとquote!はそれをnameという変数の値と置き換える。
+普通のマクロが動作するのと似た繰り返しさえ行える。本格的に入門したいならhttps://docs.rs/quote
+を確認。
+
+stringify!マクロは言語に組み込まれており、1+2のようなRustの式を取り、コンパイル時に"1+2"のような文字列リテラルにその式を変換する。
+これはformat!やprintln!のような式を評価し、そして結果をStringに変換するマクロとは異なる。
+#name入力が文字通り出力されるべき式という可能性もあるので、stringify!を使用している。
+stringify!をしよ9うすると、コンパイル時に#nameを文字列リテラルに変換することでメモリ確保をしなくても済む。
+
+
+hello_macroとhello_macro_deriveの両方でcargo buildが成功するようになったので、使うことが出来るようになった。
+2つのクレートを依存として使う側のクレートのCago.tomlに追加するときに、crates.ioに公開しているなら普通の依存になる。
+公開していないのなら相対パスで指定してあげれば良い。
+
+[dependencies]
+hello_macro = { path = "../hello_macro" }
+hello_macro_derive = { path = "../hello_macro/hello_macro_derive" }
+
+
+use hello_macro::HelloMacro;
+use hello_macro_derive::HelloMacro;
+
+#[derive(HelloMacro)]
+struct Pancakes;
+
+fn main() {
+    Pancakes::hello_macro();
+}
+
+このコードをsrc/main.rsに配置し、cargo runを実行することにより、
+"Hello, Macro! My name is Pancakes"と出力される。
+
+手続き的マクロのHelloMacroトレイトの実装はpancakesクレートが実装する必要なく、包含された。
+#[derive(HelloMacro)]がトレイトの実装を追加してくれている。
