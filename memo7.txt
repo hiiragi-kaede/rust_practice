@@ -39,3 +39,68 @@ TcpListenerのincomingメソッドは一連のストリームを与えるイテ�
 streamがスコープを抜け、ループの最後でドロップされると、接続はdrop実装の一部として閉じられる。
 ブラウザは再試行することで閉じられた接続を扱うことがある。問題が一時的なものである可能性があるため。
 重要な要素はTCP接続へのハンドルを得ることに成功したということ。
+
+
+ブラウザからリクエストを読み取る機能を実装する。
+まず接続を得て、それから接続に対してなんらかの行動を行う責任を分離するために、接続を処理する新しい関数を作成する。
+新しいhandle_connection関数において、TCPストリームからデータを読み取り、ブラウザからデータが送られていることを確認できるように端末に出力させる。
+
+std::io::preludeをスコープに導入して、ストリームから読み書きさせてくれる特定のトレイトにアクセスできるようにしている。
+先程は接続を確立したというメッセージを出力していたが、今回はhandle_connection関数を呼び出し、streamを渡している。
+
+handle_connection関数においてstream引数を可変にしたが、理由はTcpStreamインスタンスが内部で返すデータを追いかけているから。
+要求した以上のデータを読み取り、次回データを要求したときのためにそのデータを保存する可能性がある。
+故に、内部の状態が変化する可能性があるので、mutにする必要がある。
+
+次にストリームから読み取りを2つの手順で行っていく。まずスタックに読み取ったデータを保持するbufferを宣言する。
+今回はバッファーのサイズを1024バイトにした。今回の目的を達成するには十分な大きさ。
+このバッファーをstream.readに渡し、これがTcpStreamからバイトを読み取ってバッファーに置く。
+
+2番めにバッファーのバイトを文字列に変換し、その文字列を出力する。
+String::from_utf8_lossy関数は&[u8]を取り、Stringを生成する。名前のlossyの部分は、
+無効なUTF-8シーケンスに遭遇したときの関数の振る舞いを示唆している。
+無効なシーケンスをU+FFFD REPLACEMENT CHARACTERで置き換える。
+バッファーとして1024バイトの領域を用意しているが、リクエストデータは1024バイト存在しないことがほとんどなので、
+変数bufferの後ろ部分が産められないまま放置されるため、置換された文字が表示されることがある。
+
+
+今回の実行結果はこんな感じになる。
+
+Request: GET / HTTP/1.1
+Host: 127.0.0.1:7878
+Connection: keep-alive
+sec-ch-ua: " Not;A Brand";v="99", "Google Chrome";v="91", "Chromium";v="91"
+sec-ch-ua-mobile: ?0
+Upgrade-Insecure-Requests: 1
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.114 Safari/537.36
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9
+Sec-Fetch-Site: none
+Sec-Fetch-Mode: navigate
+Sec-Fetch-User: ?1
+Sec-Fetch-Dest: document
+Accept-Encoding: gzip, deflate, br
+Accept-Language: ja,en-US;q=0.9,en;q=0.8
+
+
+HTTPはテキストベースのプロトコルで、1つの要求は以下のフォーマットに則っている。
+Method Request-URI HTTP-Version CRLF
+headers CRLF
+message-body
+
+一行目はクライアントが要求しているものが何なのかについての情報を保持するリクエスト行。
+リクエスト行の最初の部分は使用されているGETやPOSTなどのメソッドを示し、
+これはどのようにクライアントがこの要求を行っているかを記述する。クライアントはGETリクエストを使用している。
+
+リクエスト業の次の部分は/で、これはクライアントが要求しているURI(Uniform Resource Identifier)を示している。
+URIはほぼURL(Uniform Resource Locator)と同じだが、完全に同じではない。
+HTTPの規格はURIという用語を使用している。
+
+※URLはインターネット上に存在するファイルの場所を示すもので、Web上の住所に当たる。
+　URIはインターネット上に素材するあらゆるファイルを識別する総称。URLはURIの一部。
+　Web上の名前にあたるURNと合わせてURIと呼ばれている。
+
+最後の部分はクライアントが使用しているHTTPのバージョンで、それからリクエスト行はCRLFで終了する。
+CRLFにより、リクエスト行がリクエストデータの残りと区別される。CRLFを出力すると、\r\nではなく新しい行が開始されることに注意。
+
+今回のリクエストは、
+GETがメソッド、/が要求URI、HTTP/1.1がバージョンになっている。
