@@ -486,3 +486,71 @@ Default::default関数は、構造体更新記法と組み合わせてよく使�
 
 例えばDefaultトレイトはOption<T>インスタンスに対してメソッドunwrap_or_defaultを使用するときに必要になる。
 Option<T>がNoneならばメソッドunwrap_or_defaultはOption<T>に格納された型Tに対してDefault::defaultの結果を返す。
+
+
+・付録D　便利な開発ツール
+自動フォーマットや警告に対する修正をすばやく適用する方法、lintツール、そしてIDEとの統合について見ていく。
+
+rustfmtというツールは、コミュニティのコードスタイルに合わせてコードをフォーマットしてくれる。
+Rustを書くときにどのスタイルを使うかでもめないように、全員がこのツールでコードをフォーマットする。
+
+インストールするには
+rustup component add rustfmt
+を入力する。
+cargoのプロジェクトに対してフォーマットする際は
+cargo fmt
+を使用する。
+
+このコマンドは現在のクレートのあらゆるRustコードをフォーマットし直す。
+コードのスタイルのみが変わり、コードの意味は変わらない。
+https://github.com/rust-lang/rustfmt
+詳しくはドキュメントを確認。
+
+
+rustfixというツールはRustをインストールすると同梱されていて、コンパイラの警告を自動で直してくれる。
+
+fn do_something() {}
+
+fn main() {
+    for i in 0..100 {
+        do_something();
+    }
+}
+
+例えばこのコードでは、for文内でiを使っていないという警告が出る。
+そして、iを_iという名前に変えたらどうだろうという警告が出る。
+アンダーバーはその変数を使わないという意図を示す。
+cargo fix
+というコマンドを実行することで警告で出た提案をrustfixツールで自動で適用できる。
+
+fn do_something() {}
+
+fn main() {
+    for _i in 0..100 {
+        do_something();
+    }
+}
+
+今回はこんな感じに修正される。
+cargo fixコマンドを使うと異なるRust editionの間でコードを変換することもできる。
+editionについては次の付録で説明。
+
+
+Clippyというツールはコードを分析することで、よくある間違いを見つけてRustのコードを改善させてくれるlintを集めたもの。
+いわゆる静的解析ツール。
+Clippyのインストールを行うには
+rustup component add clippy
+を入力する。
+Clippyのlintは次のコマンドを使ってCargoプロジェクトに適用できる。
+cargo clippy
+
+
+fn main() {
+    let x = 3.1415;
+    let r = 8.0;
+    println!("the area of the circle is {}", x * r * r);
+}
+例えばこのコードでは変数に円周率を自分で定義しているが、Rustにはより正確に定義された定数があるという警告を受ける。
+
+Clippyについてよりよく知るには以下のドキュメントを参照。
+https://github.com/rust-lang/rust-clippy
